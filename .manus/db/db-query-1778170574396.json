@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `sound_settings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`sound_type` enum('bell','chime','alarm','beep','siren','notification','custom') NOT NULL DEFAULT 'chime',\n\t`sound_volume` int NOT NULL DEFAULT 70,\n\t`is_enabled` boolean NOT NULL DEFAULT true,\n\t`animation_type` enum('pulse','flash','bounce','shake','rainbow','glow') NOT NULL DEFAULT 'pulse',\n\t`animation_speed` enum('slow','normal','fast') NOT NULL DEFAULT 'normal',\n\t`custom_sound_url` varchar(500),\n\t`created_at` timestamp NOT NULL DEFAULT (now()),\n\t`updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `sound_settings_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway06.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 41ufmcLXCjpGK6w.root --database 6WnCokWgb4rfLgjGA27M8D --execute CREATE TABLE `sound_settings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`sound_type` enum('bell','chime','alarm','beep','siren','notification','custom') NOT NULL DEFAULT 'chime',\n\t`sound_volume` int NOT NULL DEFAULT 70,\n\t`is_enabled` boolean NOT NULL DEFAULT true,\n\t`animation_type` enum('pulse','flash','bounce','shake','rainbow','glow') NOT NULL DEFAULT 'pulse',\n\t`animation_speed` enum('slow','normal','fast') NOT NULL DEFAULT 'normal',\n\t`custom_sound_url` varchar(500),\n\t`created_at` timestamp NOT NULL DEFAULT (now()),\n\t`updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `sound_settings_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1757
+}
