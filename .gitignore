@@ -106,6 +106,9 @@ temp/
 *.sqlite
 *.sqlite3
 
+# Electron build output
+release/
+
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 

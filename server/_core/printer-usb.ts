@@ -99,6 +99,7 @@ class USBThermalPrinter {
         console.warn(
           `[Printer] USB printer not found (VID: 0x${this.config.vendorId?.toString(16)}, PID: 0x${this.config.productId?.toString(16)})`
         );
+        console.warn(`[Printer] Available devices: ${devices.map((d: any) => `VID:0x${d.deviceDescriptor.idVendor.toString(16)} PID:0x${d.deviceDescriptor.idProduct.toString(16)}`).join(', ')}`);
         return false;
       }
 
@@ -197,12 +198,22 @@ class USBThermalPrinter {
    * Test yazdırması yap
    */
   async testPrint(): Promise<boolean> {
-    if (!this.isConnected || !this.device) {
-      console.warn("[Printer] Printer not connected");
-      return false;
-    }
-
     try {
+      // Yazıcı bağlı değilse bağlanmayı dene
+      if (!this.isConnected || !this.device) {
+        console.log("[Printer] Printer not connected, attempting to connect...");
+        const connected = await this.connect();
+        if (!connected) {
+          console.warn("[Printer] Failed to connect to printer");
+          return false;
+        }
+      }
+
+      if (!this.device) {
+        console.warn("[Printer] Device is null");
+        return false;
+      }
+
       this.device
         .align("ct")
         .text("TEST YAZDIRMASI")

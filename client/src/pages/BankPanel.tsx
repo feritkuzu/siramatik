@@ -3,116 +3,105 @@ import { trpc } from "@/lib/trpc";
 import { useSocket } from "@/hooks/useSocket";
 import { Button } from "@/components/ui/button";
 
+function getIpc() {
+  try {
+    const electron = (window as any).require?.("electron");
+    if (electron?.ipcRenderer) return electron.ipcRenderer;
+  } catch (_) {}
+  return null;
+}
+
 export default function BankPanel() {
-  const [selectedBankId, setSelectedBankId] = useState<number | null>(null);
   const [currentCustomer, setCurrentCustomer] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-  // Detect mobile/tablet
+  const ipc = getIpc();
+  const isElectron = !!ipc;
+
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Fetch all banks
   const { data: banks, refetch: refetchBanks } = trpc.bank.getAll.useQuery(undefined, {
     refetchInterval: 2000,
   });
 
-  // Fetch waiting queue
+  const { data: myBank, isLoading: isMyBankLoading } = trpc.bank.getMyBank.useQuery(undefined, {
+    refetchInterval: 10000,
+  });
+
   const { data: queue } = trpc.queue.getWaitingQueue.useQuery(undefined, {
     refetchInterval: 2000,
   });
 
-  // Call next customer mutation
-  const callNextMutation = trpc.queue.getNextWaitingEntry.useQuery();
-  const completeMutation = trpc.queue.updateQueueEntryStatus.useMutation();
+  const callNextMutation = trpc.queue.callNext.useMutation();
+  const completeServiceMutation = trpc.queue.completeService.useMutation();
 
-  // Socket.io connection
-  const { on, emit } = useSocket("bank", selectedBankId || undefined);
+  const { on, emit } = useSocket("bank", myBank?.id || undefined);
 
-  // Set default bank on first load
+  const selectedBank = banks?.find((b: any) => b.id === myBank?.id);
+
   useEffect(() => {
-    if (banks && banks.length > 0 && !selectedBankId) {
-      setSelectedBankId(banks[0].id);
-    }
-  }, [banks, selectedBankId]);
-
-  // Update current customer when bank changes
-  useEffect(() => {
-    if (selectedBankId && banks) {
-      const bank = banks.find((b: any) => b.id === selectedBankId);
+    if (myBank && banks && !currentCustomer) {
+      const bank = banks.find((b: any) => b.id === myBank.id);
       if (bank && bank.currentQueueEntryId) {
         const customer = queue?.find((q: any) => q.id === bank.currentQueueEntryId);
-        setCurrentCustomer(customer || null);
-      } else {
-        setCurrentCustomer(null);
+        const c: any = customer;
+        if (c) {
+          setCurrentCustomer({
+            id: c.id,
+            ticketNumber: c.ticketNumber ?? c.ticket_number,
+            phoneNumber: c.phoneNumber ?? c.phone_number,
+          });
+        }
       }
     }
-  }, [selectedBankId, banks, queue]);
+  }, [myBank, banks, queue, currentCustomer]);
 
-  // Listen for customer called events
   useEffect(() => {
-    const unsubscribe = on("customer:called", (data) => {
-      if (data.bankId === selectedBankId) {
-        console.log("[BankPanel] Customer called for this bank:", data);
+    const unsubscribe = on("customer:called", (data: any) => {
+      if (myBank && data.bankId === myBank.id) {
         setCurrentCustomer({
           id: data.entryId,
           ticketNumber: data.ticketNumber,
+          phoneNumber: data.phoneNumber,
         });
       }
     });
-
     return unsubscribe;
-  }, [on, selectedBankId]);
+  }, [on, myBank]);
 
-  // Listen for service completed events
   useEffect(() => {
-    const unsubscribe = on("service:completed", (data) => {
-      if (data.bankId === selectedBankId) {
-        console.log("[BankPanel] Service completed for this bank:", data);
+    const unsubscribe = on("service:completed", (data: any) => {
+      if (myBank && data.bankId === myBank.id) {
         setCurrentCustomer(null);
       }
     });
-
     return unsubscribe;
-  }, [on, selectedBankId]);
+  }, [on, myBank]);
 
   const handleCallNext = async () => {
-    if (!selectedBankId) return;
+    if (!myBank) return;
     setIsLoading(true);
     try {
-      // Get next waiting customer
-      const result = callNextMutation.data;
-      if (!result) {
-        console.error("No waiting customers");
-        return;
-      }
-      
+      const result = await callNextMutation.mutateAsync({ bankId: myBank.id });
       setCurrentCustomer({
         id: result.id,
         ticketNumber: result.ticketNumber,
+        phoneNumber: result.phoneNumber,
       });
-
-      // Update status to 'called'
-      await completeMutation.mutateAsync({ 
-        entryId: result.id, 
-        status: 'called' 
-      });
-
-      // Emit socket event
       emit("customer:called", {
         ticketNumber: result.ticketNumber,
-        bankId: selectedBankId,
+        phoneNumber: result.phoneNumber,
+        bankId: myBank.id,
         entryId: result.id,
         timestamp: Date.now(),
       });
-
       await refetchBanks();
     } catch (error) {
       console.error("Failed to call next customer:", error);
@@ -122,23 +111,19 @@ export default function BankPanel() {
   };
 
   const handleCompleteService = async () => {
-    if (!selectedBankId || !currentCustomer) return;
+    if (!myBank || !currentCustomer) return;
     setIsLoading(true);
     try {
-      // Update status to 'completed'
-      await completeMutation.mutateAsync({ 
-        entryId: currentCustomer.id, 
-        status: 'completed' 
+      await completeServiceMutation.mutateAsync({
+        bankId: myBank.id,
+        entryId: currentCustomer.id,
       });
-
-      // Emit socket event
       emit("service:completed", {
         ticketNumber: currentCustomer.ticketNumber,
-        bankId: selectedBankId,
+        bankId: myBank.id,
         entryId: currentCustomer.id,
         timestamp: Date.now(),
       });
-
       setCurrentCustomer(null);
       await refetchBanks();
     } catch (error) {
@@ -148,159 +133,176 @@ export default function BankPanel() {
     }
   };
 
-  const selectedBank = banks?.find((b: any) => b.id === selectedBankId);
+  // Loading state
+  if (isMyBankLoading) {
+    return (
+      <div className="w-full h-screen bg-black flex items-center justify-center">
+        <p className="text-xl font-black text-foreground/60">YÜKLENİYOR...</p>
+      </div>
+    );
+  }
+
+  // No bank assigned to this IP
+  if (!myBank) {
+    return (
+      <div className="w-full h-screen bg-black flex flex-col items-center justify-center p-4">
+        {isElectron && (
+          <div className="fixed top-0 right-0 flex gap-1 p-2 z-50">
+            <button onClick={() => ipc?.send("window-minimize")} className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-black border border-secondary cursor-pointer" title="Küçült">_</button>
+            <button onClick={() => setShowExitConfirm(true)} className="w-8 h-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white text-sm font-black border border-red-600 cursor-pointer" title="Kapat">X</button>
+          </div>
+        )}
+        <div className="border-4 border-yellow-400 p-8 max-w-md w-full text-center">
+          <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-400" />
+          <h1 className="text-2xl font-black neon-pink mb-6" style={{ textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+            SİRAMATİK
+          </h1>
+          <div className="text-6xl mb-4">⚠</div>
+          <p className="text-xl font-black text-yellow-400 mb-2">HENÜZ BU BANKO KAYDEDİLMEDİ</p>
+          <p className="text-sm text-foreground/60">
+            Bu bilgisayarın IP adresi sistemde tanımlı değil. Süperadmin panelinden IP adresinizi kaydettirin.
+          </p>
+        </div>
+        {showExitConfirm && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+            <div className="border-4 border-red-600 p-8 bg-card text-center max-w-sm w-full">
+              <p className="text-lg font-black mb-4">Uygulama kapatılsın mı?</p>
+              <div className="flex gap-4 justify-center">
+                <button onClick={() => ipc?.send("window-close")} className="h-10 px-6 font-black text-sm bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 cursor-pointer">KAPAT</button>
+                <button onClick={() => setShowExitConfirm(false)} className="h-10 px-6 font-black text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground border-2 border-secondary cursor-pointer">İPTAL</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Bank assigned but inactive
+  if (!myBank.isActive) {
+    return (
+      <div className="w-full h-screen bg-black flex items-center justify-center p-4">
+        {isElectron && (
+          <div className="fixed top-0 right-0 flex gap-1 p-2 z-50">
+            <button onClick={() => ipc?.send("window-minimize")} className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-black border border-secondary cursor-pointer" title="Küçült">_</button>
+            <button onClick={() => setShowExitConfirm(true)} className="w-8 h-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white text-sm font-black border border-red-600 cursor-pointer" title="Kapat">X</button>
+          </div>
+        )}
+        <div className="border-4 border-yellow-400 p-8 max-w-md w-full text-center">
+          <h1 className="text-2xl font-black neon-pink mb-6" style={{ textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+            BANKO {myBank.bankNumber}
+          </h1>
+          <p className="text-xl font-black text-red-400 mb-2">✗ BANKO KAPALI</p>
+          <p className="text-sm text-foreground/60">Bu banko şu anda aktif değil. Admin panelinden açılmasını bekleyin.</p>
+        </div>
+        {showExitConfirm && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+            <div className="border-4 border-red-600 p-8 bg-card text-center max-w-sm w-full">
+              <p className="text-lg font-black mb-4">Uygulama kapatılsın mı?</p>
+              <div className="flex gap-4 justify-center">
+                <button onClick={() => ipc?.send("window-close")} className="h-10 px-6 font-black text-sm bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 cursor-pointer">KAPAT</button>
+                <button onClick={() => setShowExitConfirm(false)} className="h-10 px-6 font-black text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground border-2 border-secondary cursor-pointer">İPTAL</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full h-screen bg-background flex flex-col p-2 sm:p-4 md:p-6 lg:p-8 gap-4 md:gap-6 lg:gap-8">
-      {/* Header */}
-      <div className="border-2 sm:border-3 md:border-4 border-primary p-3 sm:p-4 md:p-6 relative">
-        <div className="absolute top-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary" />
-        <div className="absolute top-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary" />
-        <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black neon-pink mb-1 sm:mb-2" style={{ textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>BANKO YETKİLİ PANELİ</h1>
-        <p className="text-xs sm:text-sm md:text-base lg:text-lg neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>Müşteri Yönetim Sistemi</p>
+    <div className="w-full h-screen bg-background flex flex-col p-1 sm:p-2 md:p-3 gap-1 md:gap-2">
+      {/* Electron window controls */}
+      {isElectron && (
+        <div className="fixed top-0 right-0 flex gap-1 p-2 z-50">
+          <button onClick={() => ipc?.send("window-minimize")} className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-black border border-secondary cursor-pointer" title="Küçült">_</button>
+          <button onClick={() => setShowExitConfirm(true)} className="w-8 h-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white text-sm font-black border border-red-600 cursor-pointer" title="Kapat">X</button>
+        </div>
+      )}
+
+      {/* Header - draggable for Electron frameless window */}
+      <div className="border-2 border-primary p-2 relative" style={{ WebkitAppRegion: "drag" } as any}>
+        <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-primary" />
+        <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-primary" />
+        <h1 className="text-base sm:text-lg font-black neon-pink text-center" style={{ textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+          BANKO YETKİLİ PANELİ - BANKO {selectedBank?.bankNumber}
+        </h1>
       </div>
 
-      <div className="flex-1 flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6 lg:gap-8 min-h-0">
-        {/* Bank Selection */}
-        <div className={`${isMobile ? "w-full" : "w-64"} flex flex-col gap-2 sm:gap-3 md:gap-4`}>
-          <div className="border-2 sm:border-3 md:border-4 border-secondary p-2 sm:p-3 md:p-4">
-            <h2 className="text-sm sm:text-base md:text-lg lg:text-xl font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>BANKO SEÇ</h2>
+      <div className="flex-1 flex flex-col gap-1 min-h-0">
+        {/* Stats row */}
+        <div className="flex gap-1">
+          <div className="flex-1 border border-secondary p-1 text-center">
+            <p className="text-xs text-foreground/60">DURUM</p>
+            <p className="text-sm font-black">{selectedBank?.isOccupied ? <span className="neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>MEŞGUL</span> : <span className="text-green-400">BOŞ</span>}</p>
           </div>
-
-          <div className={`${isMobile ? "flex gap-2 overflow-x-auto pb-2" : "flex-1 overflow-y-auto space-y-2"}`}>
-            {banks?.map((bank: any) => (
-              <button
-                key={bank.id}
-                onClick={() => setSelectedBankId(bank.id)}
-                className={`${isMobile ? "flex-shrink-0 w-32 sm:w-40" : "w-full"} p-2 sm:p-3 md:p-4 border-2 sm:border-3 md:border-4 transition-all touch-manipulation ${
-                  selectedBankId === bank.id
-                    ? "border-primary bg-primary/20"
-                    : "border-secondary bg-card hover:border-primary"
-                }`}
-              >
-                <div className="font-black text-xs sm:text-sm md:text-base lg:text-lg neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>BANKO {bank.bankNumber}</div>
-                <div className="text-xs mt-1 sm:mt-2">
-                  {bank.isActive ? (
-                    <span className="text-green-400">● Aktif</span>
-                  ) : (
-                    <span className="text-red-400">● Kapalı</span>
-                  )}
-                </div>
-                <div className="text-xs mt-1">
-                  {bank.isOccupied ? (
-                    <span className="neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>Müşteri Var</span>
-                  ) : (
-                    <span className="text-foreground/60">Boş</span>
-                  )}
-                </div>
-                <div className="text-xs mt-1 sm:mt-2 text-foreground/60">
-                  Hizmet: {bank.totalServed}
-                </div>
-              </button>
-            ))}
+          <div className="flex-1 border border-secondary p-1 text-center">
+            <p className="text-xs text-foreground/60">HİZMET</p>
+            <p className="text-sm font-black neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>{selectedBank?.totalServed || 0}</p>
+          </div>
+          <div className="flex-1 border border-secondary p-1 text-center">
+            <p className="text-xs text-foreground/60">BEKLEYEN</p>
+            <p className="text-sm font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>{queue?.length || 0}</p>
           </div>
         </div>
 
-        {/* Main Panel */}
-        <div className="flex-1 flex flex-col gap-3 sm:gap-4 md:gap-6 lg:gap-8 min-h-0">
-          {/* Current Customer Section */}
-          <div className="border-2 sm:border-3 md:border-4 border-primary p-3 sm:p-4 md:p-6 lg:p-8 flex-1 flex flex-col items-center justify-center relative min-h-0">
-            <div className="absolute top-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary" />
-            <div className="absolute top-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary" />
-            <div className="absolute bottom-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary" />
-            <div className="absolute bottom-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary" />
+        {/* Current Customer Section */}
+        <div className="border-2 border-primary p-2 flex-1 flex flex-col items-center justify-center relative min-h-0">
+          <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-primary" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-primary" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-primary" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-primary" />
 
-            {currentCustomer ? (
-              <div className="text-center w-full">
-                <p className="text-xs sm:text-sm md:text-base lg:text-lg text-foreground/60 mb-2 sm:mb-3 md:mb-4">AKTİF MÜŞTERİ</p>
-                <div
-                  className="text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-black neon-pink mb-3 sm:mb-4 md:mb-6 lg:mb-8"
-                  style={{
-                    animation: "neon-pulse 1s ease-in-out infinite",
-                    textShadow: "0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor",
-                  }}
-                >
-                  {currentCustomer.ticketNumber}
-                </div>
-                <p className="text-sm sm:text-base md:text-lg lg:text-2xl neon-blue mb-3 sm:mb-4 md:mb-6 lg:mb-8" style={{ textShadow: "0 0 10px currentColor" }}>
-                  BANKO {selectedBank?.bankNumber}
+          {currentCustomer ? (
+            <div className="text-center w-full">
+              <p className="text-xs text-foreground/60 mb-1">AKTİF MÜŞTERİ</p>
+              <div className="text-3xl sm:text-4xl font-black neon-pink mb-1" style={{ animation: "neon-pulse 1s ease-in-out infinite", textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+                {currentCustomer.ticketNumber}
+              </div>
+              {currentCustomer.phoneNumber && (
+                <p className="text-sm sm:text-base font-black neon-blue mb-1" style={{ textShadow: "0 0 10px currentColor" }}>
+                  {currentCustomer.phoneNumber}
                 </p>
-                <Button
-                  onClick={handleCompleteService}
-                  disabled={isLoading}
-                  className="w-32 sm:w-40 md:w-48 lg:w-80 h-10 sm:h-12 md:h-16 lg:h-20 text-xs sm:text-sm md:text-base lg:text-2xl font-black bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-none border-2 sm:border-3 md:border-4 border-destructive touch-manipulation"
-                  style={{ textShadow: "0 0 10px currentColor" }}
-                >
-                  {isLoading ? "İŞLENİYOR..." : "HİZMET BİTTİ"}
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center w-full">
-                <p className="text-lg sm:text-xl md:text-2xl lg:text-3xl text-foreground/50 mb-3 sm:mb-4 md:mb-6 lg:mb-8">MÜŞTERİ YOK</p>
-                <Button
-                  onClick={handleCallNext}
-                  disabled={isLoading || !queue || queue.length === 0}
-                  className="w-32 sm:w-40 md:w-48 lg:w-80 h-10 sm:h-12 md:h-16 lg:h-20 text-xs sm:text-sm md:text-base lg:text-2xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 sm:border-3 md:border-4 border-primary touch-manipulation"
-                  style={{ textShadow: "0 0 10px currentColor" }}
-                >
-                  {isLoading ? "ÇAĞRILIYOR..." : "SIRADAKINI ÇAĞIR"}
-                </Button>
-                {(!queue || queue.length === 0) && (
-                  <p className="text-xs sm:text-sm md:text-base lg:text-lg text-foreground/60 mt-3 sm:mt-4 md:mt-6 lg:mt-8">
-                    Kuyrukta müşteri yok
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Queue Info */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-            <div className="border-2 sm:border-3 md:border-4 border-secondary p-2 sm:p-3 md:p-4 lg:p-6 text-center">
-              <p className="text-xs sm:text-sm text-foreground/60 mb-1 sm:mb-2">BEKLEME</p>
-              <p className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>{queue?.length || 0}</p>
+              )}
+              <Button onClick={handleCompleteService} disabled={isLoading} className="h-8 px-4 text-xs font-black bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-none border-2 border-destructive">
+                {isLoading ? "İŞLENİYOR..." : "HİZMET BİTTİ"}
+              </Button>
             </div>
-            <div className="border-2 sm:border-3 md:border-4 border-secondary p-2 sm:p-3 md:p-4 lg:p-6 text-center">
-              <p className="text-xs sm:text-sm text-foreground/60 mb-1 sm:mb-2">DURUM</p>
-              <p className="text-sm sm:text-base md:text-lg lg:text-2xl font-black">
-                {selectedBank?.isOccupied ? (
-                  <span className="neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>MEŞGUL</span>
-                ) : (
-                  <span className="text-green-400">BOŞ</span>
-                )}
-              </p>
+          ) : (
+            <div className="text-center w-full">
+              <p className="text-sm text-foreground/50 mb-1">MÜŞTERİ YOK</p>
+              <Button onClick={handleCallNext} disabled={isLoading || !queue || queue.length === 0} className="h-8 px-4 text-xs font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 border-primary">
+                {isLoading ? "ÇAĞRILIYOR..." : "SIRADAKINI ÇAĞIR"}
+              </Button>
+              {(!queue || queue.length === 0) && (
+                <p className="text-xs text-foreground/60 mt-1">Kuyrukta müşteri yok</p>
+              )}
             </div>
-            <div className="border-2 sm:border-3 md:border-4 border-secondary p-2 sm:p-3 md:p-4 lg:p-6 text-center">
-              <p className="text-xs sm:text-sm text-foreground/60 mb-1 sm:mb-2">HİZMET</p>
-              <p className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl font-black neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>
-                {selectedBank?.totalServed || 0}
-              </p>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="border-t-2 sm:border-t-3 md:border-t-4 border-primary p-2 sm:p-3 md:p-4 text-center text-xs sm:text-sm text-foreground/60">
-        <span className="neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>● CANLI</span> - Sistem Aktif
+      {/* Exit confirmation modal */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+          <div className="border-4 border-red-600 p-8 bg-card text-center max-w-sm w-full">
+            <p className="text-lg font-black mb-4">Uygulama kapatılsın mı?</p>
+            <div className="flex gap-4 justify-center">
+              <button onClick={() => ipc?.send("window-close")} className="h-10 px-6 font-black text-sm bg-red-600 hover:bg-red-700 text-white border-2 border-red-600 cursor-pointer">KAPAT</button>
+              <button onClick={() => setShowExitConfirm(false)} className="h-10 px-6 font-black text-sm bg-secondary hover:bg-secondary/80 text-secondary-foreground border-2 border-secondary cursor-pointer">İPTAL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-primary p-1 text-center text-xs text-foreground/60">
+        <span className="neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>● CANLI</span> - BANKO {selectedBank?.bankNumber}
       </div>
 
       <style>{`
         @keyframes neon-pulse {
-          0%, 100% {
-            opacity: 1;
-            text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor;
-          }
-          50% {
-            opacity: 0.5;
-            text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
-          }
-        }
-        
-        @media (max-width: 640px) {
-          button {
-            font-size: clamp(0.75rem, 3vw, 1rem);
-          }
+          0%, 100% { opacity: 1; text-shadow: 0 0 10px currentColor, 0 0 20px currentColor; }
+          50% { opacity: 0.5; text-shadow: 0 0 5px currentColor; }
         }
       `}</style>
     </div>

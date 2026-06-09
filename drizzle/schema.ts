@@ -96,3 +96,63 @@ export const soundSettings = sqliteTable("sound_settings", {
 
 export type SoundSettings = typeof soundSettings.$inferSelect;
 export type InsertSoundSettings = typeof soundSettings.$inferInsert;
+
+// Ticket Design Settings Table
+export const ticketDesign = sqliteTable("ticket_design", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyName: text("company_name").notNull().default("SIRAMATIK"),
+  companySubtitle: text("company_subtitle").notNull().default("Sıra Numarası Sistemi"),
+  logoUrl: text("logo_url"),
+  headerText: text("header_text"),
+  footerText: text("footer_text"),
+  ticketWidth: integer("ticket_width").notNull().default(58), // 58mm termal yazıcı
+  showQueuePosition: integer("show_queue_position", { mode: "boolean" }).notNull().default(true),
+  showDateTime: integer("show_datetime", { mode: "boolean" }).notNull().default(true),
+  showBankInfo: integer("show_bank_info", { mode: "boolean" }).notNull().default(true),
+  customMessage1: text("custom_message_1"),
+  customMessage2: text("custom_message_2"),
+  customMessage3: text("custom_message_3"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type TicketDesign = typeof ticketDesign.$inferSelect;
+export type InsertTicketDesign = typeof ticketDesign.$inferInsert;
+
+// Label Settings Table
+export const labelSettings = sqliteTable("label_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  labelName: text("label_name").notNull().default("Varsayılan Etiket"),
+  labelType: text("label_type", { enum: ["ticket", "sticker", "card"] }).notNull().default("ticket"),
+  width: integer("width").notNull().default(58), // mm
+  height: integer("height").notNull().default(30), // mm
+  headerText: text("header_text"),
+  headerFontSize: integer("header_font_size").notNull().default(12),
+  footerText: text("footer_text"),
+  footerFontSize: integer("footer_font_size").notNull().default(10),
+  queueNumberFontSize: integer("queue_number_font_size").notNull().default(24),
+  bankNameFontSize: integer("bank_name_font_size").notNull().default(12),
+  dateTimeFontSize: integer("datetime_font_size").notNull().default(9),
+  showQRCode: integer("show_qr_code", { mode: "boolean" }).notNull().default(false),
+  showBarcode: integer("show_barcode", { mode: "boolean" }).notNull().default(false),
+  showDateTime: integer("show_datetime", { mode: "boolean" }).notNull().default(true),
+  showBankInfo: integer("show_bank_info", { mode: "boolean" }).notNull().default(true),
+  showQueuePosition: integer("show_queue_position", { mode: "boolean" }).notNull().default(true),
+  showWaitingTime: integer("show_waiting_time", { mode: "boolean" }).notNull().default(false),
+  backgroundColor: text("background_color").notNull().default("white"),
+  textColor: text("text_color").notNull().default("black"),
+  borderStyle: text("border_style", { enum: ["none", "solid", "dashed", "dotted"] }).notNull().default("solid"),
+  borderWidth: integer("border_width").notNull().default(1),
+  logoUrl: text("logo_url"),
+  logoWidth: integer("logo_width").notNull().default(40), // mm
+  logoHeight: integer("logo_height").notNull().default(20), // mm
+  customMessage1: text("custom_message_1"),
+  customMessage2: text("custom_message_2"),
+  customMessage3: text("custom_message_3"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type LabelSettings = typeof labelSettings.$inferSelect;
+export type InsertLabelSettings = typeof labelSettings.$inferInsert;

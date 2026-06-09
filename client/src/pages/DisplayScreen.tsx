@@ -8,6 +8,7 @@ interface CalledTicket {
   timestamp: number;
   isPriority?: boolean;
   priorityType?: string;
+  completed?: boolean;
 }
 
 export default function DisplayScreen() {
@@ -15,6 +16,7 @@ export default function DisplayScreen() {
   const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
   const [pulsingTicket, setPulsingTicket] = useState<number | null>(null);
   const [banks, setBanks] = useState<any[]>([]);
+  const [bankMap, setBankMap] = useState<Record<number, number>>({});
   const [soundSettings, setSoundSettings] = useState<any>({
     id: 1,
     soundType: "chime",
@@ -54,6 +56,9 @@ export default function DisplayScreen() {
   useEffect(() => {
     if (allBanks) {
       setBanks(allBanks);
+      const map: Record<number, number> = {};
+      allBanks.forEach((b: any) => { map[b.id] = b.bankNumber; });
+      setBankMap(map);
     }
   }, [allBanks]);
 
@@ -67,29 +72,23 @@ export default function DisplayScreen() {
   useEffect(() => {
     const unsubscribe = on("customer:called", (data) => {
       console.log("[Display] Customer called:", data);
-      
-      const ticket: CalledTicket = {
-        ticketNumber: data.ticketNumber,
-        bankId: data.bankId,
-        timestamp: data.timestamp,
-        isPriority: data.isPriority,
-        priorityType: data.priorityType,
-      };
 
-      setCalledTickets((prev) => [...prev, ticket]);
+      setCalledTickets((prev) => {
+        const ticket: CalledTicket = {
+          ticketNumber: data.ticketNumber,
+          bankId: data.bankId,
+          timestamp: data.timestamp,
+          isPriority: data.isPriority,
+          priorityType: data.priorityType,
+        };
+        return [ticket, ...prev.filter((t) => t.ticketNumber !== data.ticketNumber)];
+      });
+
       setPulsingTicket(data.ticketNumber);
       playNotificationSound();
 
-      // Remove from pulsing after animation - animasyon hızına göre ayarla
       const animationDuration = soundSettings.animationSpeed === "fast" ? 2000 : soundSettings.animationSpeed === "slow" ? 8000 : 5000;
       setTimeout(() => setPulsingTicket(null), animationDuration);
-
-      // Remove from called list after 10 seconds
-      setTimeout(() => {
-        setCalledTickets((prev) =>
-          prev.filter((t) => t.ticketNumber !== data.ticketNumber)
-        );
-      }, 10000);
     });
 
     return unsubscribe;
@@ -99,9 +98,11 @@ export default function DisplayScreen() {
   useEffect(() => {
     const unsubscribe = on("service:completed", (data) => {
       console.log("[Display] Service completed:", data);
-      
+
       setCalledTickets((prev) =>
-        prev.filter((t) => t.ticketNumber !== data.ticketNumber)
+        prev.map((t) =>
+          t.ticketNumber === data.ticketNumber ? { ...t, completed: true } : t
+        )
       );
     });
 
@@ -229,13 +230,19 @@ export default function DisplayScreen() {
             <h2 className="text-3xl font-black neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>ÇAĞRILAN NUMARALAR</h2>
           </div>
 
-          {/* Called Tickets Grid */}
-          <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto">
-            {calledTickets.map((ticket) => (
+            {/* Called Tickets Grid */}
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto">
+              {[...calledTickets]
+                .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0))
+                .map((ticket) => (
               <div
                 key={`${ticket.ticketNumber}-${ticket.bankId}`}
                 className={`border-4 p-6 text-center flex flex-col items-center justify-center transition-all duration-300 ${
-                  ticket.isPriority ? "border-yellow-400 bg-yellow-400/10" : "border-primary bg-card/50"
+                  ticket.completed
+                    ? "border-secondary bg-card/20 opacity-50"
+                    : ticket.isPriority
+                      ? "border-yellow-400 bg-yellow-400/10"
+                      : "border-primary bg-card/50"
                 } ${
                   pulsingTicket === ticket.ticketNumber
                     ? "bg-primary/20"
@@ -249,22 +256,27 @@ export default function DisplayScreen() {
                     : {}
                 }
               >
-                {ticket.isPriority && (
+                {ticket.completed ? (
+                  <div className="text-2xl mb-2 text-green-400">✓</div>
+                ) : ticket.isPriority ? (
                   <div className="text-2xl mb-2">⭐</div>
-                )}
-                <div className="text-5xl md:text-6xl font-black neon-pink mb-2" style={{ textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+                ) : null}
+                <div className={`text-5xl md:text-6xl font-black mb-2 ${ticket.completed ? 'text-foreground/50' : 'neon-pink'}`} style={ticket.completed ? {} : { textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
                   {ticket.ticketNumber}
                 </div>
-                <div className="text-lg md:text-xl neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>
-                  BANKO {ticket.bankId}
+                <div className={`text-lg md:text-xl ${ticket.completed ? 'text-foreground/40' : 'neon-blue'}`} style={ticket.completed ? {} : { textShadow: "0 0 10px currentColor" }}>
+                  BANKO {bankMap[ticket.bankId] ?? ticket.bankId}
                 </div>
-                {ticket.isPriority && (
+                {ticket.isPriority && !ticket.completed && (
                   <div className="text-sm text-yellow-400 mt-2" style={{ textShadow: "0 0 5px currentColor" }}>
                     {getPriorityLabel(ticket.priorityType)}
                   </div>
                 )}
+                {ticket.completed && (
+                  <div className="text-xs text-green-400 mt-2">HİZMET TAMAM</div>
+                )}
               </div>
-            ))}
+              ))}
 
             {calledTickets.length === 0 && (
               <div className="col-span-full flex items-center justify-center text-2xl text-foreground/50" style={{ textShadow: "0 0 10px currentColor" }}>

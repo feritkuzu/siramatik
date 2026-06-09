@@ -15,6 +15,20 @@
       "when": 1779117264075,
       "tag": "0001_tiny_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780312256824,
+      "tag": "0002_volatile_masque",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780474017561,
+      "tag": "0003_loving_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

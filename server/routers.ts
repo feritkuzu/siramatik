@@ -3,6 +3,8 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { printTicket } from "./_core/printer";
 import { printUSBTicket, initializeUSBPrinter, testUSBPrinter, listUSBPrinters } from "./_core/printer-usb";
+import { listWindowsPrinters, getPrinterSettings, updatePrinterSettings, testWindowsPrinter, printTicketToWindowsPrinter } from "./_core/windows-printer";
+import { listWindowsPrinters as listNativePrinters, getDefaultPrinter, printToWindowsPrinter, testPrintToWindowsPrinter, generateTicketContent } from "./_core/native-printer";
 
 export const appRouter = router({
   queue: router({
@@ -18,11 +20,39 @@ export const appRouter = router({
         const entry = await db.createQueueEntry(ticketNumber, "none", input.phoneNumber);
         await db.logSystemEvent("ticket_created", undefined, entry.id, { ticketNumber, isPriority: false });
         
-        // USB termal yazıcıya gönder (arka planda)
+        // Get label settings and print ticket
         const waitingQueue = await db.getWaitingQueue();
-        printUSBTicket(ticketNumber, waitingQueue?.length || 1).catch((err) => 
-          console.error("USB Printer error:", err)
-        );
+        const labelSettings = await db.getActiveLabelSettings();
+        
+        // Windows yazıcıya gönder (arka planda)
+        try {
+          const printerSettings = await db.getPrinterSettings();
+          if (printerSettings?.windowsPrinterName) {
+            const ticketContent = generateTicketContent({
+              queueNumber: ticketNumber.toString(),
+              timestamp: new Date(),
+              labelSettings: labelSettings,
+            });
+            const result = await printToWindowsPrinter({
+              printerName: printerSettings.windowsPrinterName,
+              data: ticketContent,
+            });
+            console.log(`[Queue] Ticket ${ticketNumber} Windows printer result:`, result.message);
+          } else {
+            console.log(`[Queue] Ticket ${ticketNumber} atlandi - windowsPrinterName yok`);
+          }
+        } catch (err) {
+          console.error("[Queue] Windows Printer error:", err);
+        }
+        
+        // USB termal yazıcıya gönder (arka planda)
+        try {
+          await initializeUSBPrinter();
+          await printUSBTicket(ticketNumber, waitingQueue?.length || 1);
+          console.log(`[Queue] Ticket ${ticketNumber} printed to USB printer`);
+        } catch (err) {
+          console.error("[Queue] USB Printer error:", err);
+        }
         
         return {
           success: true,
@@ -50,9 +80,13 @@ export const appRouter = router({
           
           // USB termal yazıcıya gönder
           const waitingQueue = await db.getWaitingQueue();
-          printUSBTicket(ticketNumber, waitingQueue?.length || 1).catch((err) => 
-            console.error("USB Printer error:", err)
-          );
+          try {
+            await initializeUSBPrinter();
+            await printUSBTicket(ticketNumber, waitingQueue?.length || 1);
+            console.log(`[Queue] Priority ticket ${ticketNumber} printed to USB printer`);
+          } catch (err) {
+            console.error("[Queue] USB Printer error:", err);
+          }
           
           return {
             success: true,
@@ -91,6 +125,27 @@ export const appRouter = router({
         }
       }),
 
+    // Call next customer for a bank
+    callNext: publicProcedure
+      .input(z.object({ bankId: z.number() }))
+      .mutation(async ({ input }) => {
+        const result = await db.callNextCustomer(input.bankId);
+        if (!result) throw new Error("No waiting customers");
+        await db.logSystemEvent("customer_called", input.bankId, result.id, {
+          ticketNumber: result.ticketNumber,
+        });
+        return result;
+      }),
+
+    // Complete service for a bank
+    completeService: publicProcedure
+      .input(z.object({ bankId: z.number(), entryId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.completeService(input.bankId, input.entryId);
+        await db.logSystemEvent("service_completed", input.bankId, input.entryId, {});
+        return { success: true };
+      }),
+
     // Get estimated wait time
     getEstimatedWaitTime: publicProcedure
       .input(z.object({ ticketNumber: z.number() }))
@@ -106,6 +161,7 @@ export const appRouter = router({
         const completed = await db.getQueueStats();
         
         return {
+          totalTickets: completed.totalProcessed + waiting.length,
           waitingCount: waiting.length,
           totalProcessed: completed.totalProcessed,
           totalCompleted: completed.totalProcessed,
@@ -115,6 +171,7 @@ export const appRouter = router({
       } catch (error) {
         console.error("Failed to get queue stats:", error);
         return {
+          totalTickets: 0,
           waitingCount: 0,
           totalProcessed: 0,
           totalCompleted: 0,
@@ -131,19 +188,31 @@ export const appRouter = router({
       const banks = await db.getAllBanks();
       return banks.map((bank: any) => ({
         id: bank.id,
-        bankNumber: bank.bank_number,
-        isActive: bank.is_active === 1,
-        isOccupied: bank.is_occupied === 1,
-        currentQueueEntryId: bank.current_queue_entry_id,
-        totalServed: bank.total_served,
-        createdAt: bank.created_at,
-        updatedAt: bank.updated_at,
+        bankNumber: bank.bankNumber,
+        isActive: bank.isActive,
+        isOccupied: bank.isOccupied,
+        currentQueueEntryId: bank.currentQueueEntryId,
+        assignedOperatorId: bank.assignedOperatorId,
+        totalServed: bank.totalServed,
+        ipAddress: bank.ipAddress || "",
+        createdAt: bank.createdAt,
+        updatedAt: bank.updatedAt,
       }));
     }),
 
     // Get available bank
     getAvailable: publicProcedure.query(async () => {
       return await db.getAvailableBank();
+    }),
+
+    // Get my bank based on client IP
+    getMyBank: publicProcedure.query(async ({ ctx }) => {
+      const clientIp = ctx.req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || ctx.req.socket.remoteAddress || "";
+      const ip = clientIp.replace(/^::ffff:/, "");
+      if (!ip) return null;
+      const banks = await db.getAllBanks();
+      const bank = banks.find((b: any) => b.ipAddress === ip);
+      return bank || null;
     }),
   }),
 
@@ -170,6 +239,13 @@ export const appRouter = router({
         totalBanks: config.totalBanks,
         currentQueueNumber: config.currentQueueNumber,
         isSystemActive: config.isSystemActive,
+        systemName: config.systemName,
+        queuePrefix: config.queuePrefix,
+        maxQueueNumber: config.maxQueueNumber,
+        businessHoursStart: config.businessHoursStart,
+        businessHoursEnd: config.businessHoursEnd,
+        kioskMessage: config.kioskMessage,
+        kioskMode: config.kioskMode,
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       };
@@ -195,13 +271,15 @@ export const appRouter = router({
       const banks = await db.getAllBanks();
       return banks.map((bank: any) => ({
         id: bank.id,
-        bankNumber: bank.bank_number,
-        isActive: bank.is_active === 1,
-        isOccupied: bank.is_occupied === 1,
-        currentQueueEntryId: bank.current_queue_entry_id,
-        totalServed: bank.total_served,
-        createdAt: bank.created_at,
-        updatedAt: bank.updated_at,
+        bankNumber: bank.bankNumber,
+        isActive: bank.isActive,
+        isOccupied: bank.isOccupied,
+        currentQueueEntryId: bank.currentQueueEntryId,
+        assignedOperatorId: bank.assignedOperatorId,
+        totalServed: bank.totalServed,
+        ipAddress: bank.ipAddress || "",
+        createdAt: bank.createdAt,
+        updatedAt: bank.updatedAt,
       }));
     }),
 
@@ -219,6 +297,70 @@ export const appRouter = router({
           console.error("Failed to toggle bank status:", error);
           throw error;
         }
+      }),
+
+    // Bank operator management
+    getBankOperators: publicProcedure.query(async () => {
+      return await db.getAllBankOperators();
+    }),
+
+    createBankOperator: publicProcedure
+      .input(z.object({ name: z.string().min(1).max(100) }))
+      .mutation(async ({ input }) => {
+        return await db.createBankOperator(input.name);
+      }),
+
+    updateBankOperator: publicProcedure
+      .input(z.object({ id: z.number(), name: z.string().min(1).max(100) }))
+      .mutation(async ({ input }) => {
+        return await db.updateBankOperator(input.id, input.name);
+      }),
+
+    deleteBankOperator: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteBankOperator(input.id);
+        return { success: true };
+      }),
+
+    assignBankOperator: publicProcedure
+      .input(z.object({ bankId: z.number(), operatorId: z.number().nullable() }))
+      .mutation(async ({ input }) => {
+        await db.assignOperatorToBank(input.bankId, input.operatorId);
+        const bank = await db.getBankById(input.bankId);
+        const bankData = bank ? {
+          id: bank.id,
+          bankNumber: bank.bankNumber,
+          isActive: bank.isActive,
+          isOccupied: bank.isOccupied,
+          currentQueueEntryId: bank.currentQueueEntryId,
+          assignedOperatorId: (bank as any).assignedOperatorId,
+          totalServed: bank.totalServed,
+        } : null;
+      return { success: true, bank: bankData };
+    }),
+
+    updateBankIpAddress: publicProcedure
+      .input(z.object({ bankId: z.number(), ipAddress: z.string().max(15) }))
+      .mutation(async ({ input }) => {
+        await db.updateBankIpAddress(input.bankId, input.ipAddress);
+        return { success: true };
+      }),
+
+    // Update system settings
+    updateSystemSettings: publicProcedure
+      .input(z.object({
+        systemName: z.string().max(100).optional(),
+        queuePrefix: z.string().max(10).optional(),
+        maxQueueNumber: z.number().min(0).max(99999).optional(),
+        businessHoursStart: z.string().max(5).optional(),
+        businessHoursEnd: z.string().max(5).optional(),
+        kioskMessage: z.string().max(500).optional(),
+        kioskMode: z.enum(["touch", "usb_keypad", "single_button"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateSystemConfig(input);
+        return { success: true };
       }),
 
     // Get sound settings
@@ -263,6 +405,7 @@ export const appRouter = router({
         vendorId: z.number().optional(),
         productId: z.number().optional(),
         printerType: z.enum(["escpos", "network", "bluetooth"]).optional(),
+        windowsPrinterName: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         try {
@@ -298,8 +441,63 @@ export const appRouter = router({
       }
     }),
 
+    // List Windows system printers
+    listWindowsPrinters: publicProcedure.query(async () => {
+      try {
+        const printers = await listNativePrinters();
+        return printers;
+      } catch (error) {
+        console.error("Failed to list Windows printers:", error);
+        return [];
+      }
+    }),
+
+    // Get default Windows printer
+    getDefaultWindowsPrinter: publicProcedure.query(async () => {
+      try {
+        const defaultPrinter = await getDefaultPrinter();
+        return { printerName: defaultPrinter || "" };
+      } catch (error) {
+        console.error("Failed to get default printer:", error);
+        return { printerName: "" };
+      }
+    }),
+
+    // Test Windows printer
+    testWindowsPrinterEndpoint: publicProcedure
+      .input(z.object({
+        printerName: z.string(),
+        labelSettings: z.any().optional(),
+      }))
+      .mutation(async ({ input }) => {
+      try {
+        if (input.labelSettings) {
+          const { generateTicketContent } = await import('./_core/native-printer');
+          const { printToWindowsPrinter } = await import('./_core/native-printer');
+          const content = generateTicketContent({
+            queueNumber: 'TEST',
+            bankName: 'Test Banko',
+            timestamp: new Date(),
+            companyName: input.labelSettings.labelName || 'Sıramatik',
+            customMessage: input.labelSettings.footerText,
+            labelSettings: input.labelSettings,
+          });
+          const result = await printToWindowsPrinter({ printerName: input.printerName, data: content, type: 'RAW' });
+          return result;
+        }
+        const result = await testPrintToWindowsPrinter(input.printerName);
+        return result;
+      } catch (error) {
+        console.error("Failed to test Windows printer:", error);
+        return {
+          success: false,
+          message: `Test basarısız: ${error instanceof Error ? error.message : "Bilinmeyen hata"}`,
+        };
+      }
+    }),
+
     // Update sound settings
-      updateSoundSettings: publicProcedure
+    updateSoundSettings: publicProcedure
       .input(z.object({
         soundType: z.enum(["bell", "chime", "alarm", "beep", "siren", "notification", "custom"]).optional(),
         soundVolume: z.number().min(0).max(100).optional(),
@@ -329,6 +527,182 @@ export const appRouter = router({
         throw error;
       }
     }),
+
+    // Get ticket design settings
+    getTicketDesign: publicProcedure.query(async () => {
+      try {
+        const design = await db.getTicketDesign();
+        return design || {
+          id: 1,
+          companyName: "SIRAMATIK",
+          companySubtitle: "Sira Numarasi Sistemi",
+          logoUrl: null,
+          headerText: null,
+          footerText: null,
+          ticketWidth: 58,
+          showQueuePosition: true,
+          showDateTime: true,
+          showBankInfo: true,
+          customMessage1: null,
+          customMessage2: null,
+          customMessage3: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      } catch (error) {
+        console.error("Failed to get ticket design:", error);
+        throw error;
+      }
+    }),
+
+    // Update ticket design settings
+    updateTicketDesign: publicProcedure
+      .input(z.object({
+        companyName: z.string().optional(),
+        companySubtitle: z.string().optional(),
+        logoUrl: z.string().optional(),
+        headerText: z.string().optional(),
+        footerText: z.string().optional(),
+        ticketWidth: z.number().optional(),
+        showQueuePosition: z.boolean().optional(),
+        showDateTime: z.boolean().optional(),
+        showBankInfo: z.boolean().optional(),
+        customMessage1: z.string().optional(),
+        customMessage2: z.string().optional(),
+        customMessage3: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          await db.updateTicketDesign(input);
+          await db.logSystemEvent("ticket_design_updated", undefined, undefined, input);
+          return { success: true };
+        } catch (error) {
+          console.error("Failed to update ticket design:", error);
+          throw error;
+        }
+      }),
+
+    // Get label settings
+    getLabelSettings: publicProcedure
+      .input(z.object({ labelId: z.number().optional() }))
+      .query(async ({ input }) => {
+        try {
+          const labelId = input.labelId || 1;
+          const settings = await db.getLabelSettings(labelId);
+          return settings || { success: false, message: "Label not found" };
+        } catch (error) {
+          console.error("Failed to get label settings:", error);
+          throw error;
+        }
+      }),
+
+    // Get all label settings
+    getAllLabelSettings: publicProcedure.query(async () => {
+      try {
+        const settings = await db.getAllLabelSettings();
+        return settings;
+      } catch (error) {
+        console.error("Failed to get all label settings:", error);
+        throw error;
+      }
+    }),
+
+    // Update label settings
+    updateLabelSettings: publicProcedure
+      .input(z.object({
+        labelId: z.number().optional(),
+        labelName: z.string().optional(),
+        labelType: z.enum(["ticket", "sticker", "card"]).optional(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        headerText: z.string().optional(),
+        headerFontSize: z.number().optional(),
+        footerText: z.string().optional(),
+        footerFontSize: z.number().optional(),
+        queueNumberFontSize: z.number().optional(),
+        bankNameFontSize: z.number().optional(),
+        dateTimeFontSize: z.number().optional(),
+        showQRCode: z.boolean().optional(),
+        showBarcode: z.boolean().optional(),
+        showDateTime: z.boolean().optional(),
+        showBankInfo: z.boolean().optional(),
+        showQueuePosition: z.boolean().optional(),
+        showWaitingTime: z.boolean().optional(),
+        backgroundColor: z.string().optional(),
+        textColor: z.string().optional(),
+        borderStyle: z.enum(["none", "solid", "dashed", "dotted"]).optional(),
+        borderWidth: z.number().optional(),
+        logoUrl: z.string().optional().nullable(),
+        logoWidth: z.number().optional(),
+        logoHeight: z.number().optional(),
+        customMessage1: z.string().optional().nullable(),
+        customMessage2: z.string().optional().nullable(),
+        customMessage3: z.string().optional().nullable(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const labelId = input.labelId || 1;
+          console.log('[Router] updateLabelSettings called:', { labelId, inputKeys: Object.keys(input) });
+          await db.updateLabelSettings(labelId, input);
+          console.log('[Router] updateLabelSettings completed successfully');
+          await db.logSystemEvent("label_settings_updated", undefined, undefined, { labelId, ...input });
+          return { success: true, message: 'Etiket ayarlari basarili olarak kaydedildi' };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error("Failed to update label settings:", errorMsg);
+          return { success: false, message: `Hata: ${errorMsg}` };
+        }
+      }),
+
+    // Create new label settings
+    createLabelSettings: publicProcedure
+      .input(z.object({
+        labelName: z.string(),
+        labelType: z.enum(["ticket", "sticker", "card"]).optional(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        headerText: z.string().optional(),
+        footerText: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const labelId = await db.createLabelSettings(input);
+          await db.logSystemEvent("label_settings_created", undefined, undefined, { labelId, ...input });
+          return { success: true, labelId };
+        } catch (error) {
+          console.error("Failed to create label settings:", error);
+          throw error;
+        }
+      }),
+
+    // Set default/active label
+    setDefaultLabelSettings: publicProcedure
+      .input(z.object({ labelId: z.number() }))
+      .mutation(async ({ input }) => {
+        try {
+          await db.setDefaultLabelSettings(input.labelId);
+          await db.logSystemEvent("label_set_default", undefined, undefined, { labelId: input.labelId });
+          return { success: true, message: 'Varsayılan etiket güncellendi' };
+        } catch (error) {
+          console.error("Failed to set default label:", error);
+          throw error;
+        }
+      }),
+
+    // Delete label settings
+    deleteLabelSettings: publicProcedure
+      .input(z.object({ labelId: z.number() }))
+      .mutation(async ({ input }) => {
+        try {
+          await db.deleteLabelSettings(input.labelId);
+          await db.logSystemEvent("label_settings_deleted", undefined, undefined, { labelId: input.labelId });
+          return { success: true };
+        } catch (error) {
+          console.error("Failed to delete label settings:", error);
+          throw error;
+        }
+      }),
   }),
 
   analytics: router({

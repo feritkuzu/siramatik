@@ -3,7 +3,7 @@ import { io, Socket } from "socket.io-client";
 
 interface SocketEvents {
   "ticket:created": (data: { ticketNumber: number; entryId: number; timestamp: number; isPriority?: boolean; priorityType?: string }) => void;
-  "customer:called": (data: { ticketNumber: number; bankId: number; entryId: number; timestamp: number; isPriority?: boolean; priorityType?: string }) => void;
+  "customer:called": (data: { ticketNumber: number; bankId: number; entryId: number; timestamp: number; phoneNumber?: string; isPriority?: boolean; priorityType?: string }) => void;
   "service:completed": (data: { ticketNumber: number; bankId: number; entryId: number; timestamp: number }) => void;
   "bank:statusChanged": (data: { bankId: number; isOccupied: boolean; isActive: boolean; timestamp: number }) => void;
   "system:configUpdated": (data: { totalBanks: number; timestamp: number }) => void;

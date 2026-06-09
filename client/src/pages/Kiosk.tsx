@@ -98,9 +98,10 @@ export default function Kiosk() {
     }
     
     // Validate phone number
-    const phoneRegex = /^[0-9]{10,15}$/;
-    if (!phoneNumber || !phoneRegex.test(phoneNumber.replace(/[\s-]/g, ""))) {
-      setPhoneError("Geçerli bir telefon numarası giriniz (10-15 rakam)");
+    const minDigits = kioskMode === "usb_keypad" ? 3 : 10;
+    const phoneClean = phoneNumber.replace(/[\s-]/g, "");
+    if (!phoneClean || phoneClean.length < minDigits || phoneClean.length > 15) {
+      setPhoneError(kioskMode === "usb_keypad" ? "En az 3 rakam giriniz" : "Geçerli bir telefon numarası giriniz (10-15 rakam)");
       return;
     }
     
@@ -165,6 +166,43 @@ export default function Kiosk() {
     }
   };
 
+  const kioskMode = (config as any)?.kioskMode || "touch";
+
+  // Single button mode: capture any keypress as ticket trigger
+  useEffect(() => {
+    if (kioskMode !== "single_button") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); return; }
+      if (!showSuccess && !isLoading) handleGetTicketSimple();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [kioskMode, showSuccess, isLoading]);
+
+  // USB keypad mode: capture numeric keyboard input
+  useEffect(() => {
+    if (kioskMode !== "usb_keypad") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); return; }
+      if (showSuccess) return;
+      if (e.key === "Enter") {
+        if (phoneNumber.length >= 3) handleGetTicket();
+        return;
+      }
+      if (e.key === "Backspace") {
+        setPhoneNumber(prev => prev.slice(0, -1));
+        setPhoneError("");
+        return;
+      }
+      if (/^[0-9]$/.test(e.key) && phoneNumber.length < 15) {
+        setPhoneNumber(prev => prev + e.key);
+        setPhoneError("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [kioskMode, phoneNumber, showSuccess]);
+
   // Full screen kiosk mode
   useEffect(() => {
     const handleFullscreen = () => {
@@ -193,6 +231,28 @@ export default function Kiosk() {
       document.removeEventListener("click", handleClick);
     };
   }, []);
+
+  // Single button ticket (no phone number required)
+  const handleGetTicketSimple = async () => {
+    if (systemNotInitialized || isLoading) return;
+    setIsLoading(true);
+    try {
+      const result = await createTicketMutation.mutateAsync({});
+      setTicketNumber(result.ticketNumber);
+      setShowSuccess(true);
+      setCountdownSeconds(5);
+      emit("ticket:created", {
+        ticketNumber: result.ticketNumber,
+        entryId: result.entryId,
+        timestamp: Date.now(),
+        isPriority: false,
+      });
+    } catch (error) {
+      console.error("Failed to get ticket:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="w-full h-screen bg-background flex items-center justify-center overflow-hidden">
@@ -235,98 +295,130 @@ export default function Kiosk() {
                 </p>
               </div>
 
-              {/* Phone Number Input */}
-              <div className="w-full max-w-md px-4 mb-6 sm:mb-8">
-                <label className="block text-sm sm:text-base md:text-lg neon-blue mb-2 sm:mb-3 font-semibold">
-                  Telefon Numaranız
-                </label>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => {
-                    setPhoneNumber(e.target.value);
-                    setPhoneError("");
-                  }}
-                  placeholder="Örn: 05301234567"
-                  className="w-full h-12 sm:h-14 md:h-16 px-4 text-lg sm:text-xl font-bold border-3 sm:border-4 border-primary bg-background text-foreground rounded-none focus:outline-none focus:ring-2 focus:ring-primary"
-                  disabled={isLoading}
-                />
-                {phoneError && (
-                  <p className="text-red-400 text-xs sm:text-sm mt-2 font-semibold">{phoneError}</p>
-                )}
-              </div>
-
-              {/* Instructions */}
-              <div className="text-center mb-6 sm:mb-8 md:mb-12 max-w-2xl px-4">
-                <p className="text-xs sm:text-sm md:text-lg lg:text-xl text-foreground/80 mb-3 sm:mb-4">
-                  Lütfen telefon numaranızı girdikten sonra aşağıdaki butona basarak sıra numaranızı alınız
-                </p>
-                <div className="flex gap-2 sm:gap-3 md:gap-4 justify-center flex-wrap text-xs sm:text-sm">
-                  <div className="neon-blue">► Hızlı İşlem</div>
-                  <div className="neon-pink">► Güvenli Sistem</div>
-                  <div className="neon-blue">► Anlık Bildirim</div>
-                </div>
-              </div>
-
-              {/* Regular Ticket Button */}
-              <Button
-                onClick={handleGetTicket}
-                disabled={isLoading}
-                className="w-40 h-24 sm:w-48 sm:h-28 md:w-64 md:h-32 text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 sm:border-3 md:border-4 border-primary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                style={{
-                  textShadow: "0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor",
-                  minHeight: "auto",
-                }}
-              >
-                {isLoading ? "İŞLENİYOR..." : "SIRA AL"}
-              </Button>
-
-              {/* Priority Ticket Section */}
-              <div className="w-full max-w-4xl px-4">
-                <p className="text-center text-xs sm:text-sm md:text-base lg:text-lg neon-blue mb-4 sm:mb-6">
-                  ÖNCELİKLİ SIRA (Yaşlı, Engelli, Hamile)
-                </p>
-                <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-                  {/* Elderly Button */}
-                  <Button
-                    onClick={() => handleGetPriorityTicket("elderly")}
+              {kioskMode === "single_button" ? (
+                <>
+                  {/* Tek Buton: huge button, no phone input */}
+                  <button
+                    onClick={handleGetTicketSimple}
                     disabled={isLoading}
-                    className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                    className="w-64 h-64 sm:w-72 sm:h-72 md:w-96 md:h-96 text-4xl sm:text-5xl md:text-7xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-4 sm:border-8 border-primary transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer touch-manipulation flex items-center justify-center"
                     style={{
-                      textShadow: "0 0 10px currentColor",
+                      textShadow: "0 0 20px currentColor, 0 0 40px currentColor, 0 0 60px currentColor",
+                      animation: "neon-pulse 2s ease-in-out infinite",
+                    }}
+                  >
+                    {isLoading ? "..." : "SIRA\nAL"}
+                  </button>
+                  <p className="text-lg sm:text-xl text-foreground/60 text-center max-w-md px-4">
+                    Sıra almak için butona basınız veya klavyede herhangi bir tuşa basınız.
+                  </p>
+                </>
+              ) : (
+                <>
+                  {/* Phone Number Display (touch & usb_keypad modes) */}
+                  <div className="w-full max-w-md px-4 mb-4">
+                    <label className="block text-sm sm:text-base md:text-lg neon-blue mb-2 font-semibold text-center">
+                      Telefon Numaranız
+                    </label>
+                    <div className="w-full h-14 sm:h-16 md:h-20 px-4 text-2xl sm:text-3xl md:text-4xl font-bold border-3 sm:border-4 border-primary bg-background text-foreground flex items-center justify-center tracking-widest">
+                      {phoneNumber ? (
+                        <span>{phoneNumber}</span>
+                      ) : (
+                        <span className="text-foreground/30 text-lg sm:text-xl">
+                          {kioskMode === "usb_keypad" ? "USB keypad ile numara giriniz" : "Numara giriniz"}
+                        </span>
+                      )}
+                    </div>
+                    {phoneError && (
+                      <p className="text-red-400 text-xs sm:text-sm mt-2 font-semibold text-center">{phoneError}</p>
+                    )}
+                  </div>
+
+                  {/* Virtual Keypad (only in touch mode) */}
+                  {kioskMode === "touch" && (
+                    <div className="w-full max-w-xs mx-auto px-4 mb-6">
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                        {["1","2","3","4","5","6","7","8","9"].map((digit) => (
+                          <button key={digit} onClick={() => { if (phoneNumber.length < 15) { setPhoneNumber(prev => prev + digit); setPhoneError(""); } }} disabled={isLoading}
+                            className="h-14 sm:h-16 w-full text-xl sm:text-2xl font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground border-2 border-secondary rounded-none transition-all duration-200 active:scale-95 disabled:opacity-50 touch-manipulation">
+                            {digit}
+                          </button>
+                        ))}
+                        <button onClick={() => setPhoneNumber(prev => prev.slice(0, -1))} disabled={isLoading || !phoneNumber}
+                          className="h-14 sm:h-16 w-full text-sm font-black bg-destructive hover:bg-destructive/90 text-destructive-foreground border-2 border-destructive rounded-none transition-all duration-200 active:scale-95 disabled:opacity-50 touch-manipulation">
+                          SIL
+                        </button>
+                        <button onClick={() => { if (phoneNumber.length < 15) { setPhoneNumber(prev => prev + "0"); setPhoneError(""); } }} disabled={isLoading}
+                          className="h-14 sm:h-16 w-full text-xl sm:text-2xl font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground border-2 border-secondary rounded-none transition-all duration-200 active:scale-95 disabled:opacity-50 touch-manipulation">
+                          0
+                        </button>
+                        <button onClick={() => { setPhoneNumber(""); setPhoneError(""); }} disabled={isLoading || !phoneNumber}
+                          className="h-14 sm:h-16 w-full text-sm font-black bg-foreground/20 hover:bg-foreground/30 text-foreground border-2 border-foreground/30 rounded-none transition-all duration-200 active:scale-95 disabled:opacity-50 touch-manipulation">
+                          TEMIZLE
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* USB Keypad hint */}
+                  {kioskMode === "usb_keypad" && (
+                    <p className="text-sm text-foreground/60 text-center mb-4">
+                      USB keypad ile numaranızı girip Enter'a basınız
+                    </p>
+                  )}
+
+                  {/* Instructions */}
+                  <div className="text-center mb-6 sm:mb-8 md:mb-12 max-w-2xl px-4">
+                    <p className="text-xs sm:text-sm md:text-lg lg:text-xl text-foreground/80 mb-3 sm:mb-4">
+                      {kioskMode === "usb_keypad"
+                        ? "Numaranızı USB keypad ile girin ve Enter'a basın"
+                        : "Lütfen telefon numaranızı girdikten sonra aşağıdaki butona basarak sıra numaranızı alınız"}
+                    </p>
+                    <div className="flex gap-2 sm:gap-3 md:gap-4 justify-center flex-wrap text-xs sm:text-sm">
+                      <div className="neon-blue">► Hızlı İşlem</div>
+                      <div className="neon-pink">► Güvenli Sistem</div>
+                      <div className="neon-blue">► Anlık Bildirim</div>
+                    </div>
+                  </div>
+
+                  {/* Regular Ticket Button */}
+                  <Button
+                    onClick={handleGetTicket}
+                    disabled={isLoading}
+                    className="w-40 h-24 sm:w-48 sm:h-28 md:w-64 md:h-32 text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 sm:border-3 md:border-4 border-primary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                    style={{
+                      textShadow: "0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor",
                       minHeight: "auto",
                     }}
                   >
-                    {isLoading ? "..." : "👴 YAŞLI"}
+                    {isLoading ? "İŞLENİYOR..." : "SIRA AL"}
                   </Button>
 
-                  {/* Disabled Button */}
-                  <Button
-                    onClick={() => handleGetPriorityTicket("disabled")}
-                    disabled={isLoading}
-                    className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                    style={{
-                      textShadow: "0 0 10px currentColor",
-                      minHeight: "auto",
-                    }}
-                  >
-                    {isLoading ? "..." : "♿ ENGELLİ"}
-                  </Button>
-
-                  {/* Pregnant Button */}
-                  <Button
-                    onClick={() => handleGetPriorityTicket("pregnant")}
-                    disabled={isLoading}
-                    className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                    style={{
-                      textShadow: "0 0 10px currentColor",
-                      minHeight: "auto",
-                    }}
-                  >
-                    {isLoading ? "..." : "🤰 HAMİLE"}
-                  </Button>
-                </div>
-              </div>
+                  {/* Priority Ticket Section */}
+                  <div className="w-full max-w-4xl px-4">
+                    <p className="text-center text-xs sm:text-sm md:text-base lg:text-lg neon-blue mb-4 sm:mb-6">
+                      ÖNCELİKLİ SIRA (Yaşlı, Engelli, Hamile)
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4">
+                      <Button onClick={() => handleGetPriorityTicket("elderly")} disabled={isLoading}
+                        className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
+                        {isLoading ? "..." : "👴 YAŞLI"}
+                      </Button>
+                      <Button onClick={() => handleGetPriorityTicket("disabled")} disabled={isLoading}
+                        className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
+                        {isLoading ? "..." : "♿ ENGELLİ"}
+                      </Button>
+                      <Button onClick={() => handleGetPriorityTicket("pregnant")} disabled={isLoading}
+                        className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
+                        {isLoading ? "..." : "🤰 HAMİLE"}
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Footer Info */}
               <div className="text-center text-xs sm:text-sm text-foreground/60 mt-6 sm:mt-8 md:mt-12">

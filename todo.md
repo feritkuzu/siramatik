@@ -191,10 +191,69 @@ Tüm ekranlar (Kiosk, Banko Paneli, Admin Paneli, Raporlama Dashboard) mobil, ta
 - [x] Kiosk Ticket Yazdırma: Müşteri sıra numarası aldığında USB yazıcıdan bilet çıkıyor
 - [x] Admin Paneline Yazıcı Ayarları Bölümü: Test yazdırması ve USB yazıcı listesi gösterme
 
-## Kalan Görevler
+## Tamamlanan Özellikler (Mevcut Oturum - Devam)
+- [x] Bilet Tasarımı Özelleştirme: Admin paneline kurum logosu, özel metin, bilet formatı ayarları
+
+## Kalan Görevler (Mevcut Oturum)
+- [x] Veritabanı düzeltmesi: label_settings tablosu otomatik oluşturma
+- [x] Label settings entegrasyonu: generateTicketContent fonksiyonuna label_settings parametresi eklendi
+- [x] Ticket yazdırma: queue.createTicket endpoint'inde label_settings geçildi
+- [x] Vitest testleri: 12/12 label settings testleri başarılı
 - [ ] Admin paneline WhatsApp API ayarları UI'si ekle (API key, sender numarası/template ayarları)
 - [ ] WhatsApp ayarlarını saklamak için backend/db katmanı ve tRPC endpoint'leri ekle
 - [ ] Raporlama ekranına banko bazlı hizmet verilen kullanıcı sayısı ve ortalama hizmet süresi kart/tablo/grafiklerini bağla
 - [ ] Yeni raporlama metrikleri için Vitest testleri yaz ve çalıştır
 - [ ] BankPanel'de yeni müşteri çağrılırken mevcut aktif müşteriyi otomatik `completed` durumuna geçir
 - [ ] BankPanel otomatik tamamlama akışı için test ekle ve edge case'leri yönet
+
+## Windows Native Yazıcı Entegrasyonu (Tamamlandı)
+- [x] Native printer servisi oluştur (server/_core/native-printer.ts)
+- [x] Windows sistem yazıcılarını listeleme fonksiyonu ekle
+- [x] ESC/POS protokolü ile yazdırma fonksiyonu ekle
+- [x] tRPC endpoint'lerini ekle (listWindowsPrinters, getDefaultWindowsPrinter, testWindowsPrinterEndpoint)
+- [x] Admin Panel'de Windows yazıcı seçim UI'si ekle
+- [x] Vitest testleri yaz (7 test başarılı)
+- [x] Checkpoint al
+
+## Sonraki Adımlar (Mevcut Oturum)
+- [x] Windows ortamında native printer'ı test et (Zjiang ZJ-5890K) - PowerShell Notepad yazdırma çalışıyor
+- [x] Ticket oluşturulurken Windows yazıcıya otomatik yazırma ekle
+- [x] Admin Panel'de etiket tasarımı bölümü UI'si oluştur
+- [x] Etiket önizleme göster
+- [x] Ticket yazırılırken özel etiket tasarımını kullan
+- [x] Veritabanı düzeltmesi: label_settings tablosu otomatik oluşturma
+- [ ] Admin paneline WhatsApp API ayarları UI'si ekle
+- [ ] WhatsApp ayarlarını saklamak için backend/db katmanı ve tRPC endpoint'leri ekle
+- [ ] Raporlama ekranına banko bazlı hizmet verilen kullanıcı sayısı ve ortalama hizmet süresi kart/tablo/grafiklerini bağla
+- [ ] Yeni raporlama metrikleri için Vitest testleri yaz ve çalıştır
+- [ ] BankPanel'de yeni müşteri çağrılırken mevcut aktif müşteriyi otomatik completed durumuna geçir
+- [ ] BankPanel otomatik tamamlama akışı için test ekle ve edge case'leri yönet
+
+## Etiket (Label) Tasarımı Özelliği
+- [x] Veritabanı şemasını güncelle - label_settings tablosu ekle (header, footer, qr_code, logo, font_size vb.)
+- [x] Backend: getLabelSettings(), updateLabelSettings() fonksiyonları ekle
+- [x] tRPC API: admin.getLabelSettings ve admin.updateLabelSettings endpoints'leri ekle
+- [x] Admin Panel'de etiket tasarımı bölümü oluştur (WYSIWYG editor veya form)
+- [x] Etiket tasarımı önizleme özelliği ekle
+- [x] Kiosk'ta ticket yazılırken özel etiket tasarımını kullan
+- [x] Etiket tasarımı testleri yaz ve çalıştır (7/7 başarılı)
+- [x] Checkpoint al
+- [x] Veritabanı düzeltmesi: label_settings tablosu otomatik oluşturma
+
+
+## Mevcut Oturum - Sorun Giderme (Yazıcı ve Etiket Kaydetme)
+- [x] Yazıcı test timeout ve hata yönetimi eklendi (10 saniye timeout)
+- [x] printToWindowsPrinter fonksiyonu iyileştirildi
+- [x] testPrint metoduna otomatik bağlanma eklendi
+- [x] Etiket tasarımı kaydetme sorunu çözüldü (logging, hata yönetimi, page refresh eklendi)
+- [x] Backend logging: updateLabelSettings fonksiyonuna detaylı logging eklendi
+- [x] Frontend refresh: Kaydetme sonrası sayfa otomatik yenileniyor
+- [ ] Kiosk ekranında ticket yazdırma testi yap
+- [ ] Admin panelinde test yazıcı butonu testi yap
+
+
+## Etiket Kaydetme Doğrulama (Yapılması Gereken)
+- [x] updateLabelSettings sonrası getLabelSettings ile kaydedilen alanları doğrula (4/4 test başarılı)
+- [x] Etiket tasarımı save-then-reload integration testi yaz (label-save-verify.test.ts)
+- [ ] AdminPanel kaydetme akışında success response kontrolü ekle
+- [ ] Başarısız response durumunda false-success alert göstermeyi engelle

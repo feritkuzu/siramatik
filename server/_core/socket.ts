@@ -53,7 +53,7 @@ export function setupSocketIO(httpServer: HTTPServer) {
     // Customer called
     socket.on(
       "customer:called",
-      async (data: { ticketNumber: number; bankId: number; entryId: number }) => {
+      async (data: { ticketNumber: number; bankId: number; entryId: number; phoneNumber?: string }) => {
         console.log(`[Socket] Customer called: #${data.ticketNumber} -> Bank ${data.bankId}`);
 
         // Broadcast to all clients
@@ -61,6 +61,7 @@ export function setupSocketIO(httpServer: HTTPServer) {
           ticketNumber: data.ticketNumber,
           bankId: data.bankId,
           entryId: data.entryId,
+          phoneNumber: data.phoneNumber,
           timestamp: Date.now(),
         });
 

@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { setupSocketIO } from "./socket";
+import { getAllBanks } from "../db";
 
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -48,6 +49,34 @@ async function startServer() {
       createContext,
     })
   );
+
+  // Bank IP restriction middleware: bank PCs can only see /bank page
+  app.use(async (req, res, next) => {
+    const clientIp = req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket.remoteAddress || "";
+    const ip = clientIp.replace(/^::ffff:/, "");
+    if (!ip) return next();
+
+    try {
+      const banks = await getAllBanks();
+      const isBankIp = banks.some((b: any) => b.ipAddress === ip);
+      if (isBankIp) {
+        // Allow API calls, static assets, and the /bank page
+        if (
+          req.path.startsWith("/api/") ||
+          req.path.startsWith("/assets/") ||
+          req.path.startsWith("/src/") ||
+          req.path === "/bank" ||
+          req.path.startsWith("/bank/")
+        ) {
+          return next();
+        }
+        // Redirect everything else to /bank
+        return res.redirect("/bank");
+      }
+    } catch (_) {}
+    next();
+  });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

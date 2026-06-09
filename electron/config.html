@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Siramatik - Sunucu Bağlantısı</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      width: 420px;
+      padding: 30px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 900;
+      text-align: center;
+      margin-bottom: 8px;
+      color: #ff00ff;
+      text-shadow: 0 0 10px #ff00ff;
+    }
+    p {
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 24px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: #00ffff;
+      margin-bottom: 6px;
+      text-shadow: 0 0 5px #00ffff;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      background: #111;
+      border: 2px solid #333;
+      color: #e0e0e0;
+      outline: none;
+    }
+    input:focus { border-color: #ff00ff; }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 900;
+      background: #ff00ff;
+      border: 2px solid #ff00ff;
+      color: #fff;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+    button:hover { background: #cc00cc; }
+    .error { color: #ff4444; font-size: 12px; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SİRAMATİK</h1>
+    <p>Banko Panel Bağlantısı</p>
+    <label>SUNUCU ADRESİ</label>
+    <input type="text" id="serverUrl" placeholder="http://192.168.1.100:3000" />
+    <p class="error" id="error">Lütfen geçerli bir adres girin</p>
+    <button onclick="connect()">BAĞLAN</button>
+  </div>
+  <script>
+    window.onload = async () => {
+      const config = await window.electronAPI.getConfig();
+      if (config && config.serverUrl) {
+        document.getElementById("serverUrl").value = config.serverUrl;
+      }
+    };
+
+    async function connect() {
+      const url = document.getElementById("serverUrl").value.trim();
+      if (!url) {
+        document.getElementById("error").style.display = "block";
+        return;
+      }
+      document.getElementById("error").style.display = "none";
+      await window.electronAPI.saveConfig(url);
+    }
+  </script>
+</body>
+</html>
