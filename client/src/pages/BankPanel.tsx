@@ -40,6 +40,7 @@ export default function BankPanel() {
   });
 
   const callNextMutation = trpc.queue.callNext.useMutation();
+  const callSpecificMutation = trpc.queue.callSpecific.useMutation();
   const completeServiceMutation = trpc.queue.completeService.useMutation();
 
   const { on, emit } = useSocket("bank", myBank?.id || undefined);
@@ -105,6 +106,31 @@ export default function BankPanel() {
       await refetchBanks();
     } catch (error) {
       console.error("Failed to call next customer:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCallSpecific = async (entryId: number, ticketNumber: number) => {
+    if (!myBank) return;
+    setIsLoading(true);
+    try {
+      const result = await callSpecificMutation.mutateAsync({ bankId: myBank.id, entryId });
+      setCurrentCustomer({
+        id: result.id,
+        ticketNumber: result.ticketNumber,
+        phoneNumber: result.phoneNumber,
+      });
+      emit("customer:called", {
+        ticketNumber: result.ticketNumber,
+        phoneNumber: result.phoneNumber,
+        bankId: myBank.id,
+        entryId: result.id,
+        timestamp: Date.now(),
+      });
+      await refetchBanks();
+    } catch (error) {
+      console.error("Failed to call specific customer:", error);
     } finally {
       setIsLoading(false);
     }
@@ -229,56 +255,91 @@ export default function BankPanel() {
         </h1>
       </div>
 
-      <div className="flex-1 flex flex-col gap-1 min-h-0">
-        {/* Stats row */}
-        <div className="flex gap-1">
-          <div className="flex-1 border border-secondary p-1 text-center">
-            <p className="text-xs text-foreground/60">DURUM</p>
-            <p className="text-sm font-black">{selectedBank?.isOccupied ? <span className="neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>MEŞGUL</span> : <span className="text-green-400">BOŞ</span>}</p>
+      <div className="flex-1 flex gap-1 min-h-0">
+        {/* Left Column - Stats + Current Customer */}
+        <div className="flex-1 flex flex-col gap-1 min-h-0">
+          {/* Stats row */}
+          <div className="flex gap-1">
+            <div className="flex-1 border border-secondary p-1 text-center">
+              <p className="text-xs text-foreground/60">DURUM</p>
+              <p className="text-sm font-black">{selectedBank?.isOccupied ? <span className="neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>MEŞGUL</span> : <span className="text-green-400">BOŞ</span>}</p>
+            </div>
+            <div className="flex-1 border border-secondary p-1 text-center">
+              <p className="text-xs text-foreground/60">HİZMET</p>
+              <p className="text-sm font-black neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>{selectedBank?.totalServed || 0}</p>
+            </div>
+            <div className="flex-1 border border-secondary p-1 text-center">
+              <p className="text-xs text-foreground/60">BEKLEYEN</p>
+              <p className="text-sm font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>{queue?.length || 0}</p>
+            </div>
           </div>
-          <div className="flex-1 border border-secondary p-1 text-center">
-            <p className="text-xs text-foreground/60">HİZMET</p>
-            <p className="text-sm font-black neon-pink" style={{ textShadow: "0 0 10px currentColor" }}>{selectedBank?.totalServed || 0}</p>
-          </div>
-          <div className="flex-1 border border-secondary p-1 text-center">
-            <p className="text-xs text-foreground/60">BEKLEYEN</p>
-            <p className="text-sm font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>{queue?.length || 0}</p>
+
+          {/* Current Customer Section */}
+          <div className="border-2 border-primary p-2 flex-1 flex flex-col items-center justify-center relative min-h-0">
+            <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-primary" />
+            <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-primary" />
+            <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-primary" />
+            <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-primary" />
+
+            {currentCustomer ? (
+              <div className="text-center w-full">
+                <p className="text-xs text-foreground/60 mb-1">AKTİF MÜŞTERİ</p>
+                <div className="text-3xl sm:text-4xl font-black neon-pink mb-1" style={{ animation: "neon-pulse 1s ease-in-out infinite", textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
+                  {currentCustomer.ticketNumber}
+                </div>
+                {currentCustomer.phoneNumber && (
+                  <p className="text-sm sm:text-base font-black neon-blue mb-1" style={{ textShadow: "0 0 10px currentColor" }}>
+                    {currentCustomer.phoneNumber}
+                  </p>
+                )}
+                <Button onClick={handleCompleteService} disabled={isLoading} className="h-8 px-4 text-xs font-black bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-none border-2 border-destructive">
+                  {isLoading ? "İŞLENİYOR..." : "HİZMET BİTTİ"}
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center w-full">
+                <p className="text-sm text-foreground/50 mb-1">MÜŞTERİ YOK</p>
+                <Button onClick={handleCallNext} disabled={isLoading || !queue || queue.length === 0} className="h-8 px-4 text-xs font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 border-primary">
+                  {isLoading ? "ÇAĞRILIYOR..." : "SIRADAKINI ÇAĞIR"}
+                </Button>
+                {(!queue || queue.length === 0) && (
+                  <p className="text-xs text-foreground/60 mt-1">Kuyrukta müşteri yok</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Current Customer Section */}
-        <div className="border-2 border-primary p-2 flex-1 flex flex-col items-center justify-center relative min-h-0">
-          <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-primary" />
-          <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-primary" />
-          <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-primary" />
-          <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-primary" />
-
-          {currentCustomer ? (
-            <div className="text-center w-full">
-              <p className="text-xs text-foreground/60 mb-1">AKTİF MÜŞTERİ</p>
-              <div className="text-3xl sm:text-4xl font-black neon-pink mb-1" style={{ animation: "neon-pulse 1s ease-in-out infinite", textShadow: "0 0 10px currentColor, 0 0 20px currentColor" }}>
-                {currentCustomer.ticketNumber}
-              </div>
-              {currentCustomer.phoneNumber && (
-                <p className="text-sm sm:text-base font-black neon-blue mb-1" style={{ textShadow: "0 0 10px currentColor" }}>
-                  {currentCustomer.phoneNumber}
-                </p>
-              )}
-              <Button onClick={handleCompleteService} disabled={isLoading} className="h-8 px-4 text-xs font-black bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-none border-2 border-destructive">
-                {isLoading ? "İŞLENİYOR..." : "HİZMET BİTTİ"}
-              </Button>
-            </div>
-          ) : (
-            <div className="text-center w-full">
-              <p className="text-sm text-foreground/50 mb-1">MÜŞTERİ YOK</p>
-              <Button onClick={handleCallNext} disabled={isLoading || !queue || queue.length === 0} className="h-8 px-4 text-xs font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 border-primary">
-                {isLoading ? "ÇAĞRILIYOR..." : "SIRADAKINI ÇAĞIR"}
-              </Button>
-              {(!queue || queue.length === 0) && (
-                <p className="text-xs text-foreground/60 mt-1">Kuyrukta müşteri yok</p>
-              )}
-            </div>
-          )}
+        {/* Right Column - Waiting Queue List */}
+        <div className="w-72 flex flex-col border-2 border-secondary p-2 min-h-0 relative">
+          <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-secondary" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-secondary" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-secondary" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-secondary" />
+          <p className="text-xs font-black neon-blue mb-2" style={{ textShadow: "0 0 10px currentColor" }}>BEKLEYEN MÜŞTERİLER</p>
+          <div className="flex-1 overflow-y-auto space-y-1">
+            {queue && queue.length > 0 ? (
+              queue.map((entry: any) => (
+                <div key={entry.id} className="border border-secondary p-1 flex items-center gap-1">
+                  <span className="text-base font-black flex-1">{entry.ticketNumber}</span>
+                  {entry.priorityType && entry.priorityType !== 'none' && (
+                    <span className="text-xs text-yellow-400 mr-1">
+                      {entry.priorityType === 'elderly' ? '👴' : entry.priorityType === 'disabled' ? '♿' : entry.priorityType === 'pregnant' ? '🤰' : ''}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleCallSpecific(entry.id, entry.ticketNumber)}
+                    disabled={isLoading || !!currentCustomer}
+                    className="h-6 px-2 text-xs font-black bg-primary hover:bg-primary/90 disabled:opacity-30 text-primary-foreground border border-primary cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    ÇAĞIR
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-foreground/50 text-center mt-4">Bekleyen müşteri yok</p>
+            )}
+          </div>
         </div>
       </div>
 

@@ -137,6 +137,18 @@ export const appRouter = router({
         return result;
       }),
 
+    // Call specific customer from waiting queue (urgent / special call)
+    callSpecific: publicProcedure
+      .input(z.object({ bankId: z.number(), entryId: z.number() }))
+      .mutation(async ({ input }) => {
+        const result = await db.callSpecificEntry(input.bankId, input.entryId);
+        if (!result) throw new Error("Customer not found or already called");
+        await db.logSystemEvent("customer_called_specific", input.bankId, result.id, {
+          ticketNumber: result.ticketNumber,
+        });
+        return result;
+      }),
+
     // Complete service for a bank
     completeService: publicProcedure
       .input(z.object({ bankId: z.number(), entryId: z.number() }))

@@ -11,6 +11,11 @@ interface CalledTicket {
   completed?: boolean;
 }
 
+interface CallNotification {
+  ticketNumber: number;
+  bankId: number;
+}
+
 export default function DisplayScreen() {
   const [calledTickets, setCalledTickets] = useState<CalledTicket[]>([]);
   const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
@@ -28,6 +33,8 @@ export default function DisplayScreen() {
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+
+  const [callNotification, setCallNotification] = useState<CallNotification | null>(null);
 
   // Fetch waiting queue
   const { data: queue } = trpc.queue.getWaitingQueue.useQuery(undefined, {
@@ -87,6 +94,9 @@ export default function DisplayScreen() {
       setPulsingTicket(data.ticketNumber);
       playNotificationSound();
 
+      setCallNotification({ ticketNumber: data.ticketNumber, bankId: data.bankId });
+      setTimeout(() => setCallNotification(null), 6000);
+
       const animationDuration = soundSettings.animationSpeed === "fast" ? 2000 : soundSettings.animationSpeed === "slow" ? 8000 : 5000;
       setTimeout(() => setPulsingTicket(null), animationDuration);
     });
@@ -126,7 +136,6 @@ export default function DisplayScreen() {
     const now = audioContext.currentTime;
     const volume = soundSettings.soundVolume / 100;
 
-    // Ses türüne göre frekans seç
     const getFrequencies = () => {
       switch (soundSettings.soundType) {
         case "bell":
@@ -147,27 +156,29 @@ export default function DisplayScreen() {
 
     const { freq1, freq2 } = getFrequencies();
 
-    // First beep
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.connect(gain1);
-    gain1.connect(audioContext.destination);
-    osc1.frequency.value = freq1;
-    gain1.gain.setValueAtTime(volume * 0.3, now);
-    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-    osc1.start(now);
-    osc1.stop(now + 0.2);
+    for (let i = 0; i < 12; i++) {
+      const t = now + i * 0.5;
 
-    // Second beep
-    const osc2 = audioContext.createOscillator();
-    const gain2 = audioContext.createGain();
-    osc2.connect(gain2);
-    gain2.connect(audioContext.destination);
-    osc2.frequency.value = freq2;
-    gain2.gain.setValueAtTime(volume * 0.3, now + 0.25);
-    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
-    osc2.start(now + 0.25);
-    osc2.stop(now + 0.45);
+      const osc1 = audioContext.createOscillator();
+      const gain1 = audioContext.createGain();
+      osc1.connect(gain1);
+      gain1.connect(audioContext.destination);
+      osc1.frequency.value = freq1;
+      gain1.gain.setValueAtTime(volume * 0.3, t);
+      gain1.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+      osc1.start(t);
+      osc1.stop(t + 0.2);
+
+      const osc2 = audioContext.createOscillator();
+      const gain2 = audioContext.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioContext.destination);
+      osc2.frequency.value = freq2;
+      gain2.gain.setValueAtTime(volume * 0.3, t + 0.25);
+      gain2.gain.exponentialRampToValueAtTime(0.01, t + 0.45);
+      osc2.start(t + 0.25);
+      osc2.stop(t + 0.45);
+    }
   };
 
   const getPriorityLabel = (priorityType?: string) => {
@@ -355,6 +366,20 @@ export default function DisplayScreen() {
         <span className="neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>● CANLI</span> - Sistem Aktif
       </div>
 
+      {/* Call Notification Overlay */}
+      {callNotification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" style={{ animation: "fadeIn 0.3s ease-out" }}>
+          <div className="text-center">
+            <div className="text-[20vw] md:text-[15vw] font-black neon-pink leading-none mb-4" style={{ textShadow: "0 0 20px currentColor, 0 0 40px currentColor, 0 0 80px currentColor", animation: "notificationPulse 1s ease-in-out infinite" }}>
+              {callNotification.ticketNumber}
+            </div>
+            <div className="text-[6vw] md:text-[4vw] font-black neon-blue tracking-widest" style={{ textShadow: "0 0 15px currentColor, 0 0 30px currentColor" }}>
+              BANKO {bankMap[callNotification.bankId] ?? callNotification.bankId}
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes neon-pulse {
           0%, 100% {
@@ -365,6 +390,20 @@ export default function DisplayScreen() {
             opacity: 0.5;
             text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
           }
+        }
+        @keyframes notificationPulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          50% {
+            transform: scale(1.05);
+            opacity: 0.9;
+          }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
       `}</style>
     </div>

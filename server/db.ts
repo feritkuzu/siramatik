@@ -498,6 +498,39 @@ export async function callNextCustomer(bankId: number): Promise<any | null> {
   }
 }
 
+export async function callSpecificEntry(bankId: number, entryId: number): Promise<any | null> {
+  try {
+    const db = await getDb();
+    if (!db) return null;
+
+    const entry = await getQueueEntryById(entryId);
+    if (!entry || entry.status !== 'waiting') return null;
+
+    const now = Date.now();
+
+    executeUpdate(
+      "UPDATE queue_entries SET status = 'called', called_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, entryId]
+    );
+
+    executeUpdate(
+      "UPDATE banks SET is_occupied = 1, current_queue_entry_id = ?, updated_at = ? WHERE id = ?",
+      [entryId, now, bankId]
+    );
+
+    return {
+      id: entry.id,
+      ticketNumber: entry.ticketNumber,
+      phoneNumber: entry.phoneNumber,
+      priorityType: entry.priorityType,
+      calledAt: now,
+    };
+  } catch (error) {
+    console.error("[Database] Failed to call specific entry:", error);
+    return null;
+  }
+}
+
 export async function completeService(bankId: number, entryId: number): Promise<void> {
   try {
     const db = await getDb();

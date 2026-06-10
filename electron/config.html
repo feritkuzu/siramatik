@@ -42,7 +42,6 @@
       text-shadow: 0 0 5px #00ffff;
     }
     input {
-      width: 100%;
       padding: 12px;
       font-size: 14px;
       font-weight: 700;
@@ -52,6 +51,10 @@
       outline: none;
     }
     input:focus { border-color: #ff00ff; }
+    .row { display: flex; gap: 10px; align-items: end; }
+    .ip-wrap { flex: 1; }
+    .port-wrap { width: 120px; }
+    .port-wrap input { width: 100%; text-align: center; }
     button {
       width: 100%;
       padding: 12px;
@@ -65,32 +68,64 @@
     }
     button:hover { background: #cc00cc; }
     .error { color: #ff4444; font-size: 12px; margin-top: 8px; display: none; }
+    .preview {
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      margin-top: 10px;
+    }
+    .preview span { color: #00ffff; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>SİRAMATİK</h1>
     <p>Banko Panel Bağlantısı</p>
-    <label>SUNUCU ADRESİ</label>
-    <input type="text" id="serverUrl" placeholder="http://192.168.1.100:3000" />
-    <p class="error" id="error">Lütfen geçerli bir adres girin</p>
+    <div class="row">
+      <div class="ip-wrap">
+        <label>SUNUCU IP</label>
+        <input type="text" id="serverIp" placeholder="192.168.1.100" />
+      </div>
+      <div class="port-wrap">
+        <label>PORT</label>
+        <input type="text" id="serverPort" value="3000" />
+      </div>
+    </div>
+    <div class="preview" id="preview">Bağlantı: <span>http://192.168.1.100:3000</span></div>
+    <p class="error" id="error">Lütfen geçerli bir IP adresi girin</p>
     <button onclick="connect()">BAĞLAN</button>
   </div>
   <script>
     window.onload = async () => {
       const config = await window.electronAPI.getConfig();
       if (config && config.serverUrl) {
-        document.getElementById("serverUrl").value = config.serverUrl;
+        const match = config.serverUrl.match(/^https?:\/\/(.+?)(?::(\d+))?$/);
+        if (match) {
+          document.getElementById("serverIp").value = match[1];
+          if (match[2]) document.getElementById("serverPort").value = match[2];
+        }
       }
+      updatePreview();
     };
 
+    document.getElementById("serverIp").addEventListener("input", updatePreview);
+    document.getElementById("serverPort").addEventListener("input", updatePreview);
+
+    function updatePreview() {
+      const ip = document.getElementById("serverIp").value.trim();
+      const port = document.getElementById("serverPort").value.trim() || "3000";
+      document.querySelector("#preview span").textContent = ip ? `http://${ip}:${port}` : "(ip girin)";
+    }
+
     async function connect() {
-      const url = document.getElementById("serverUrl").value.trim();
-      if (!url) {
+      const ip = document.getElementById("serverIp").value.trim();
+      const port = document.getElementById("serverPort").value.trim() || "3000";
+      if (!ip) {
         document.getElementById("error").style.display = "block";
         return;
       }
       document.getElementById("error").style.display = "none";
+      const url = `http://${ip}:${port}`;
       await window.electronAPI.saveConfig(url);
     }
   </script>
