@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button";
 
 function getIpc() {
   try {
+    const api = (window as any).electronAPI;
+    if (api) {
+      return {
+        send: (channel: string) => {
+          if (channel === "window-minimize") api.minimize();
+          else if (channel === "window-close") api.close();
+        }
+      };
+    }
     const electron = (window as any).require?.("electron");
     if (electron?.ipcRenderer) return electron.ipcRenderer;
   } catch (_) {}
