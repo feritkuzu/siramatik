@@ -1,17 +1,11 @@
 param([switch]$Setup, [switch]$Kapat)
 
-$SERVER_IP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.PrefixOrigin -eq "Dhcp" -and $_.IPAddress -ne "127.0.0.1" } | Select-Object -First 1).IPAddress
-if (-not $SERVER_IP) { $SERVER_IP = "localhost" }
-$PORT = 3000
-$SERVER_URL = "http://${SERVER_IP}:${PORT}"
-$DISPLAY_URL = "${SERVER_URL}/display"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PORT = 3000
 
 if ($Setup) {
-    # Install to Windows Startup
     $startupDir = [Environment]::GetFolderPath("Startup")
     $lnkPath = Join-Path $startupDir "Siramatik.lnk"
-    
     $wsh = New-Object -ComObject WScript.Shell
     $lnk = $wsh.CreateShortcut($lnkPath)
     $lnk.TargetPath = "powershell.exe"
@@ -19,40 +13,35 @@ if ($Setup) {
     $lnk.WorkingDirectory = $SCRIPT_DIR
     $lnk.Description = "Siramatik Sistemi - Otomatik Başlat"
     $lnk.Save()
-    
-    Write-Host "[OK] Başlangıca eklendi. Bir dahaki açılışta otomatik başlar." -ForegroundColor Green
-    Write-Host "     Kısayol: $lnkPath" -ForegroundColor Gray
-    
-    # Also create desktop shortcut for manual start
+    Write-Host "[OK] Baslangica eklendi. Bir dahaki acilista otomatik baslar." -ForegroundColor Green
+
     $desktop = [Environment]::GetFolderPath("Desktop")
-    $desktopLnk = Join-Path $desktop "Siramatik - Elle Başlat.lnk"
+    $desktopLnk = Join-Path $desktop "Siramatik.lnk"
     $lnk2 = $wsh.CreateShortcut($desktopLnk)
     $lnk2.TargetPath = "powershell.exe"
     $lnk2.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$SCRIPT_DIR\baslat.ps1`""
     $lnk2.WorkingDirectory = $SCRIPT_DIR
-    $lnk2.Description = "Siramatik Sistemi - Elle Başlat"
+    $lnk2.Description = "Siramatik Sistemi"
     $lnk2.Save()
-    
-    Write-Host "[OK] Masaüstü kısayolu oluşturuldu." -ForegroundColor Green
+    Write-Host "[OK] Masaustu kısayolu olusturuldu." -ForegroundColor Green
     exit 0
 }
 
 if ($Kapat) {
-    Write-Host "Sistem kapatılıyor..." -ForegroundColor Yellow
-    Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process -Name "msedge" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" } | Stop-Process -ErrorAction SilentlyContinue
+    Write-Host "Sistem kapatiliyor..." -ForegroundColor Yellow
+    Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
+    Get-Process -Name "msedge","chrome","Siramatik*" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" -or $_.MainWindowTitle -like "*SIRAMATIK*" } | Stop-Process -ErrorAction SilentlyContinue
     Write-Host "[OK] Sistem durduruldu." -ForegroundColor Green
     exit 0
 }
 
-# Normal start mode
-$host.ui.RawUI.WindowTitle = "SIRAMATİK"
-Write-Host "========================================" -ForegroundColor Magenta
-Write-Host "       S I R A M A T I K               " -ForegroundColor Cyan
-Write-Host "       ${SERVER_URL}                    " -ForegroundColor Gray
-Write-Host "========================================" -ForegroundColor Magenta
+# === MAIN START ===
+$host.ui.RawUI.WindowTitle = "SIRAMATIK"
+Write-Host "==============================" -ForegroundColor Magenta
+Write-Host "     S I R A M A T I K       " -ForegroundColor Cyan
+Write-Host "==============================" -ForegroundColor Magenta
 
-# Kill old node processes
+# Kill old node
 Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
@@ -67,11 +56,11 @@ $serverJob = Start-Job -ScriptBlock {
     }
 }
 
-Write-Host "[1/3] Sunucu başlatılıyor..." -ForegroundColor Yellow
+Write-Host "[1/3] Sunucu baslatiliyor..." -ForegroundColor Yellow
 
-$timeout = 40
+# Wait for server
 $ready = $false
-for ($i = 0; $i -lt $timeout; $i++) {
+for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep 1
     try {
         $req = [System.Net.WebRequest]::Create("http://localhost:${PORT}/api/trpc/queue.getStats")
@@ -83,75 +72,86 @@ for ($i = 0; $i -lt $timeout; $i++) {
     } catch {}
 }
 if (-not $ready) {
-    Write-Host "[!] Sunucu başlatılamadı." -ForegroundColor Red
-    Start-Sleep 5
-    exit 1
+    Write-Host "[!] Sunucu baslatilamadi." -ForegroundColor Red
+    Start-Sleep 5; exit 1
 }
 
-Write-Host "[2/3] Sunucu hazır! Ekranlar açılıyor..." -ForegroundColor Green
+Write-Host "[2/3] Sunucu hazir! Ekranlar aciliyor..." -ForegroundColor Green
 
-# Detect monitors
+# === Detect displays ===
 Add-Type -AssemblyName System.Windows.Forms
 $screens = [System.Windows.Forms.Screen]::AllScreens
 
-# Find non-primary screen for display
+# Find the display screen (non-primary with largest area)
 $displayScreen = $null
 foreach ($s in $screens) {
-    if (-not $s.Primary) { $displayScreen = $s; break }
+    if ($s.Primary) { continue }
+    $area = $s.Bounds.Width * $s.Bounds.Height
+    if (-not $displayScreen -or $area -gt ($displayScreen.Bounds.Width * $displayScreen.Bounds.Height)) {
+        $displayScreen = $s
+    }
 }
 
-if ($displayScreen) {
-    $dx = $displayScreen.Bounds.X
-    $dy = $displayScreen.Bounds.Y
-    $dw = $displayScreen.Bounds.Width
-    $dh = $displayScreen.Bounds.Height
-    
-    Write-Host "[!] Display ekranı: $($displayScreen.DeviceName) (${dw}x${dh})" -ForegroundColor Cyan
-    
-    $browserPath = $null
-    $bkey = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe" -ErrorAction SilentlyContinue
+# Fallback: if only one screen or no extended found, use primary
+if (-not $displayScreen) { $displayScreen = $screens[0] }
+
+$dx = $displayScreen.Bounds.X
+$dy = $displayScreen.Bounds.Y
+$dw = $displayScreen.Bounds.Width
+$dh = $displayScreen.Bounds.Height
+
+Write-Host "[!] Display: $($displayScreen.DeviceName) (${dw}x${dh} @${dx},${dy})" -ForegroundColor Cyan
+
+# Find browser
+$browserPath = $null
+$bkey = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe" -ErrorAction SilentlyContinue
+if ($bkey) { $browserPath = $bkey."(default)" }
+else {
+    $bkey = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe" -ErrorAction SilentlyContinue
     if ($bkey) { $browserPath = $bkey."(default)" }
-    else {
-        $bkey = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe" -ErrorAction SilentlyContinue
-        if ($bkey) { $browserPath = $bkey."(default)" }
-    }
-    
-    if ($browserPath) {
-        Start-Process -FilePath $browserPath -ArgumentList "--new-window --start-fullscreen --window-position=$dx,$dy --window-size=$dw,$dh `"$DISPLAY_URL`""
-    } else {
-        Start-Process "ms-edge:$DISPLAY_URL"
-    }
-    Write-Host "  -> Display ekranı açıldı" -ForegroundColor Green
-} elseif ($screens.Count -eq 1) {
-    Write-Host "[!] Tek ekran, display burada açılıyor." -ForegroundColor Yellow
-    Start-Process "http://localhost:${PORT}/display"
-} else {
-    Write-Host "[!] Display ekranı bulunamadı, ana ekranda açılıyor." -ForegroundColor Yellow
-    Start-Process "http://localhost:${PORT}/display"
 }
 
-# Open Electron app if exists
+# Open display on the target monitor using kiosk mode
+$displayUrl = "http://localhost:${PORT}/display"
+if ($browserPath) {
+    $browserDir = Split-Path -Parent $browserPath
+    $tempProfile = Join-Path $env:TEMP "siramatik-display-profile"
+    if (Test-Path $tempProfile) { Remove-Item -Path $tempProfile -Recurse -Force -ErrorAction SilentlyContinue }
+    Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfile`" --no-first-run --no-default-browser-check --new-window --kiosk --window-position=$dx,$dy --window-size=$dw,$dh `"$displayUrl`""
+    Write-Host "  -> Display acildi (kiosk mod)" -ForegroundColor Green
+} else {
+    Start-Process "ms-edge:$displayUrl"
+    Write-Host "  -> Display Edge ile acildi (F11 ile tam ekran yapin)" -ForegroundColor Yellow
+}
+
+# Open Siramatik on primary monitor (manage/admin panel)
 $electronPath = Join-Path $SCRIPT_DIR "release\win-unpacked\Siramatik Banko Paneli.exe"
 if (Test-Path $electronPath) {
     Start-Process -FilePath $electronPath
-    Write-Host "  -> Banko Paneli (Electron) açıldı" -ForegroundColor Green
+    Write-Host "  -> Banko Paneli (Electron) acildi" -ForegroundColor Green
+    Start-Sleep 2
+    # Also open browser on primary monitor for admin
+    $adminUrl = "http://localhost:${PORT}/admin"
+    if ($browserPath) {
+        $tempProfile2 = Join-Path $env:TEMP "siramatik-admin-profile"
+        if (Test-Path $tempProfile2) { Remove-Item $tempProfile2 -Recurse -Force -ErrorAction SilentlyContinue }
+        Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfile2`" --no-first-run --new-window `"$adminUrl`""
+        Write-Host "  -> Admin panel (tarayici) acildi" -ForegroundColor Green
+    }
 } else {
-    Start-Process $SERVER_URL
-    Write-Host "  -> Banko Paneli (tarayıcı) açıldı" -ForegroundColor Green
+    Start-Process "http://localhost:${PORT}/"
+    Write-Host "  -> Ana sayfa (tarayici) acildi" -ForegroundColor Green
 }
 
-Write-Host "[3/3] Sistem çalışıyor!" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Magenta
-Write-Host "Kapatmak için: .\baslat.ps1 -Kapat" -ForegroundColor Gray
-Write-Host "========================================" -ForegroundColor Magenta
+Write-Host "[3/3] Sistem calisiyor!" -ForegroundColor Green
+Write-Host "Kapatmak icin: .\baslat.ps1 -Kapat" -ForegroundColor Gray
 
-# Keep running silently (no Read-Host)
+# Keep alive
 while ($true) {
     Start-Sleep 10
-    $nodeProcess = Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }
-    if (-not $nodeProcess) {
+    $alive = Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }
+    if (-not $alive) {
         Write-Host "[!] Sunucu durdu!" -ForegroundColor Red
-        Start-Sleep 5
-        break
+        Start-Sleep 5; break
     }
 }
