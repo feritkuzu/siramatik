@@ -1,8 +1,11 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const dgram = require("dgram");
 
 const CONFIG_FILE = path.join(app.getPath("userData"), "config.json");
+const BROADCAST_PORT = 31234;
+let discoverySocket = null;
 
 function loadConfig() {
   try {
@@ -19,8 +22,59 @@ function saveConfig(serverUrl) {
 
 let mainWindow = null;
 let configWindow = null;
+let discoveryTimer = null;
+
+function startDiscovery() {
+  if (discoverySocket) return;
+  discoverySocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+
+  discoverySocket.on("message", (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      if (data.type === "siramatik" && data.ip) {
+        const url = `http://${data.ip}:${data.port || 3000}`;
+        console.log(`[Discovery] Found server at ${url}`);
+
+        // Notify config window if open
+        if (configWindow && !configWindow.isDestroyed()) {
+          configWindow.webContents.send("discovered", { ip: data.ip, port: data.port || 3000, url });
+        }
+
+        // Auto-connect if no config exists
+        const existing = loadConfig();
+        if (!existing) {
+          saveConfig(url);
+          if (configWindow && !configWindow.isDestroyed()) {
+            configWindow.close();
+          }
+          if (!mainWindow) {
+            createMainWindow(url);
+          }
+        } else if (existing.serverUrl !== url) {
+          // Server IP changed - update silently
+          console.log(`[Discovery] Server changed to ${url}, updating config`);
+          saveConfig(url);
+        }
+      }
+    } catch (_) {}
+  });
+
+  discoverySocket.on("error", (err) => {
+    console.error("[Discovery] Socket error:", err.message);
+  });
+
+  discoverySocket.bind(BROADCAST_PORT, () => {
+    discoverySocket.setBroadcast(true);
+    console.log(`[Discovery] Listening on port ${BROADCAST_PORT}`);
+  });
+}
 
 function createMainWindow(serverUrl) {
+  if (mainWindow) {
+    mainWindow.loadURL(serverUrl.replace(/\/+$/, "") + "/bank");
+    return;
+  }
+
   mainWindow = new BrowserWindow({
     width: 680,
     height: 620,
@@ -34,7 +88,6 @@ function createMainWindow(serverUrl) {
   });
 
   let url = serverUrl.replace(/\/+$/, "");
-  // Add default port 3000 if no port specified
   if (!/:\d+$/.test(url)) {
     url += ":3000";
   }
@@ -68,7 +121,7 @@ function createMainWindow(serverUrl) {
 function createConfigWindow() {
   configWindow = new BrowserWindow({
     width: 500,
-    height: 350,
+    height: 380,
     resizable: false,
     frame: true,
     title: "Siramatik - Sunucu Bağlantısı",
@@ -83,15 +136,18 @@ function createConfigWindow() {
 
   configWindow.on("closed", () => {
     configWindow = null;
+    if (discoveryTimer) clearTimeout(discoveryTimer);
   });
 }
 
 ipcMain.handle("save-config", (_event, serverUrl) => {
   saveConfig(serverUrl);
-  if (configWindow) {
+  if (configWindow && !configWindow.isDestroyed()) {
     configWindow.close();
   }
-  createMainWindow(serverUrl);
+  if (!mainWindow) {
+    createMainWindow(serverUrl);
+  }
 });
 
 ipcMain.handle("get-config", () => {
@@ -99,9 +155,7 @@ ipcMain.handle("get-config", () => {
 });
 
 ipcMain.on("window-minimize", () => {
-  if (mainWindow) {
-    mainWindow.minimize();
-  }
+  if (mainWindow) mainWindow.minimize();
 });
 
 ipcMain.on("window-close", () => {
@@ -110,18 +164,27 @@ ipcMain.on("window-close", () => {
 });
 
 app.whenReady().then(() => {
+  startDiscovery();
   const config = loadConfig();
   if (config && config.serverUrl) {
     createMainWindow(config.serverUrl);
   } else {
     createConfigWindow();
+    // Auto-close config window after 15s if discovered
+    discoveryTimer = setTimeout(() => {
+      if (configWindow && !configWindow.isDestroyed()) {
+        const cfg = loadConfig();
+        if (cfg) {
+          configWindow.close();
+          if (!mainWindow) createMainWindow(cfg.serverUrl);
+        }
+      }
+    }, 15000);
   }
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
@@ -132,5 +195,12 @@ app.on("activate", () => {
     } else {
       createConfigWindow();
     }
+  }
+});
+
+app.on("will-quit", () => {
+  if (discoverySocket) {
+    discoverySocket.close();
+    discoverySocket = null;
   }
 });

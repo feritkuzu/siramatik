@@ -27,28 +27,15 @@
       color: #ff00ff;
       text-shadow: 0 0 10px #ff00ff;
     }
-    p {
-      text-align: center;
-      font-size: 13px;
-      color: #888;
-      margin-bottom: 24px;
-    }
+    p { text-align: center; font-size: 13px; color: #888; margin-bottom: 24px; }
     label {
-      display: block;
-      font-size: 12px;
-      font-weight: 700;
-      color: #00ffff;
-      margin-bottom: 6px;
-      text-shadow: 0 0 5px #00ffff;
+      display: block; font-size: 12px; font-weight: 700;
+      color: #00ffff; margin-bottom: 6px; text-shadow: 0 0 5px #00ffff;
     }
     input {
-      padding: 12px;
-      font-size: 14px;
-      font-weight: 700;
-      background: #111;
-      border: 2px solid #333;
-      color: #e0e0e0;
-      outline: none;
+      padding: 12px; font-size: 14px; font-weight: 700;
+      background: #111; border: 2px solid #333;
+      color: #e0e0e0; outline: none;
     }
     input:focus { border-color: #ff00ff; }
     .row { display: flex; gap: 10px; align-items: end; }
@@ -56,46 +43,76 @@
     .port-wrap { width: 120px; }
     .port-wrap input { width: 100%; text-align: center; }
     button {
-      width: 100%;
-      padding: 12px;
-      font-size: 14px;
-      font-weight: 900;
-      background: #ff00ff;
-      border: 2px solid #ff00ff;
-      color: #fff;
-      cursor: pointer;
-      margin-top: 16px;
+      width: 100%; padding: 12px; font-size: 14px; font-weight: 900;
+      background: #ff00ff; border: 2px solid #ff00ff;
+      color: #fff; cursor: pointer; margin-top: 16px;
     }
     button:hover { background: #cc00cc; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
     .error { color: #ff4444; font-size: 12px; margin-top: 8px; display: none; }
-    .preview {
-      text-align: center;
-      font-size: 11px;
-      color: #666;
-      margin-top: 10px;
-    }
+    .preview { text-align: center; font-size: 11px; color: #666; margin-top: 10px; }
     .preview span { color: #00ffff; }
+    #searching {
+      text-align: center; padding: 20px; display: none;
+    }
+    #searching .dots::after {
+      content: ''; animation: dots 1.5s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+      100% { content: ''; }
+    }
+    .spinner {
+      display: inline-block; width: 24px; height: 24px;
+      border: 3px solid #333; border-top-color: #ff00ff;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #manual-form { display: block; }
+    .discovered-ip {
+      color: #00ff00; font-weight: 700; font-size: 14px;
+      text-shadow: 0 0 10px #00ff00;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>SİRAMATİK</h1>
     <p>Banko Panel Bağlantısı</p>
-    <div class="row">
-      <div class="ip-wrap">
-        <label>SUNUCU IP</label>
-        <input type="text" id="serverIp" placeholder="192.168.1.100" />
-      </div>
-      <div class="port-wrap">
-        <label>PORT</label>
-        <input type="text" id="serverPort" value="3000" />
-      </div>
+
+    <!-- Auto Searching -->
+    <div id="searching">
+      <div class="spinner"></div>
+      <p style="color:#00ffff;font-weight:700;">Sunucu aranıyor...</p>
+      <p style="font-size:11px;color:#666;">Ağda Siramatik sunucusu taranıyor</p>
+      <p style="font-size:11px;color:#666;margin-top:16px;" id="search-status"></p>
     </div>
-    <div class="preview" id="preview">Bağlantı: <span>http://192.168.1.100:3000</span></div>
-    <p class="error" id="error">Lütfen geçerli bir IP adresi girin</p>
-    <button onclick="connect()">BAĞLAN</button>
+
+    <!-- Manual Form -->
+    <div id="manual-form">
+      <div class="row">
+        <div class="ip-wrap">
+          <label>SUNUCU IP</label>
+          <input type="text" id="serverIp" placeholder="192.168.1.100" />
+        </div>
+        <div class="port-wrap">
+          <label>PORT</label>
+          <input type="text" id="serverPort" value="3000" />
+        </div>
+      </div>
+      <div class="preview" id="preview">Bağlantı: <span>ip girin</span></div>
+      <p class="error" id="error">Lütfen geçerli bir IP adresi girin</p>
+      <button onclick="connect()">BAĞLAN</button>
+    </div>
   </div>
+
   <script>
+    let autoConnected = false;
+
     window.onload = async () => {
       const config = await window.electronAPI.getConfig();
       if (config && config.serverUrl) {
@@ -104,8 +121,51 @@
           document.getElementById("serverIp").value = match[1];
           if (match[2]) document.getElementById("serverPort").value = match[2];
         }
+        updatePreview();
+        // Config exists, hide searching
+        return;
       }
-      updatePreview();
+
+      // No config - show searching state
+      document.getElementById("searching").style.display = "block";
+      document.getElementById("manual-form").style.display = "none";
+
+      let seconds = 0;
+      const statusEl = document.getElementById("search-status");
+      const interval = setInterval(() => {
+        seconds++;
+        if (seconds < 15) {
+          statusEl.textContent = `Otomatik bulunamazsa ${15 - seconds}s sonra manuel giriş...`;
+        }
+      }, 1000);
+
+      // Listen for UDP discovery
+      const cleanup = window.electronAPI.onDiscovered((data) => {
+        if (autoConnected) return;
+        autoConnected = true;
+        clearInterval(interval);
+        if (cleanup) cleanup();
+
+        document.getElementById("searching").innerHTML = `
+          <div class="spinner" style="border-top-color:#00ff00;"></div>
+          <p style="color:#00ff00;font-weight:700;">Sunucu bulundu!</p>
+          <p class="discovered-ip">${data.ip}:${data.port}</p>
+          <p style="font-size:11px;color:#666;margin-top:8px;">Bağlanılıyor...</p>
+        `;
+
+        setTimeout(async () => {
+          await window.electronAPI.saveConfig(data.url);
+        }, 1500);
+      });
+
+      setTimeout(() => {
+        if (!autoConnected) {
+          clearInterval(interval);
+          document.getElementById("searching").style.display = "none";
+          document.getElementById("manual-form").style.display = "block";
+          document.getElementById("serverIp").focus();
+        }
+      }, 15000);
     };
 
     document.getElementById("serverIp").addEventListener("input", updatePreview);
@@ -125,8 +185,7 @@
         return;
       }
       document.getElementById("error").style.display = "none";
-      const url = `http://${ip}:${port}`;
-      await window.electronAPI.saveConfig(url);
+      await window.electronAPI.saveConfig(`http://${ip}:${port}`);
     }
   </script>
 </body>

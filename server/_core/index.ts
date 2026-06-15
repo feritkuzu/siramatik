@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { setupSocketIO } from "./socket";
 import { getAllBanks } from "../db";
+import { startDiscovery } from "./discovery";
 
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -93,6 +94,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    startDiscovery(port);
   });
 }
 
