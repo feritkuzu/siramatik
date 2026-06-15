@@ -1,6 +1,7 @@
 param([switch]$Setup, [switch]$Kapat)
 
-$SERVER_IP = "192.168.1.5"
+$SERVER_IP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.PrefixOrigin -eq "Dhcp" -and $_.IPAddress -ne "127.0.0.1" } | Select-Object -First 1).IPAddress
+if (-not $SERVER_IP) { $SERVER_IP = "localhost" }
 $PORT = 3000
 $SERVER_URL = "http://${SERVER_IP}:${PORT}"
 $DISPLAY_URL = "${SERVER_URL}/display"
