@@ -247,46 +247,36 @@ export default function DisplayScreen() {
     const getFrequencies = () => {
       switch (soundSettings.soundType) {
         case "bell":
-          return { freq1: 1200, freq2: 800 };
+          return { ding: 1200, dong: 900 };
         case "alarm":
-          return { freq1: 1000, freq2: 500 };
+          return { ding: 1000, dong: 600 };
         case "beep":
-          return { freq1: 600, freq2: 400 };
+          return { ding: 800, dong: 500 };
         case "siren":
-          return { freq1: 1500, freq2: 700 };
+          return { ding: 1500, dong: 1000 };
         case "notification":
-          return { freq1: 900, freq2: 600 };
+          return { ding: 900, dong: 700 };
         case "chime":
         default:
-          return { freq1: 800, freq2: 600 };
+          return { ding: 880, dong: 660 };
       }
     };
 
-    const { freq1, freq2 } = getFrequencies();
+    const { ding, dong } = getFrequencies();
 
-    for (let i = 0; i < 12; i++) {
-      const t = now + i * 0.5;
-
-      const osc1 = audioContext.createOscillator();
-      const gain1 = audioContext.createGain();
-      osc1.connect(gain1);
-      gain1.connect(audioContext.destination);
-      osc1.frequency.value = freq1;
-      gain1.gain.setValueAtTime(volume * 0.3, t);
-      gain1.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
-      osc1.start(t);
-      osc1.stop(t + 0.2);
-
-      const osc2 = audioContext.createOscillator();
-      const gain2 = audioContext.createGain();
-      osc2.connect(gain2);
-      gain2.connect(audioContext.destination);
-      osc2.frequency.value = freq2;
-      gain2.gain.setValueAtTime(volume * 0.3, t + 0.25);
-      gain2.gain.exponentialRampToValueAtTime(0.01, t + 0.45);
-      osc2.start(t + 0.25);
-      osc2.stop(t + 0.45);
-    }
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(ding, now);
+    gain.gain.setValueAtTime(volume * 0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc.frequency.setValueAtTime(dong, now + 0.25);
+    gain.gain.setValueAtTime(volume * 0.3, now + 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    osc.start(now);
+    osc.stop(now + 0.5);
   };
 
   const getPriorityLabel = (priorityType?: string) => {

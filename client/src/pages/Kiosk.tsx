@@ -162,6 +162,7 @@ export default function Kiosk() {
         timestamp: Date.now(),
         isPriority: false,
       });
+      playTicketSound();
     } catch (error) {
       console.error("Failed to get ticket:", error);
     } finally {
@@ -206,6 +207,7 @@ export default function Kiosk() {
         isPriority: true,
         priorityType: type,
       });
+      playTicketSound();
     } catch (error) {
       console.error("Failed to get priority ticket:", error);
     } finally {
@@ -397,11 +399,33 @@ export default function Kiosk() {
         timestamp: Date.now(),
         isPriority: false,
       });
+      playTicketSound();
     } catch (error) {
       console.error("Failed to get ticket:", error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const playTicketSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const now = audioContext.currentTime;
+      const t = (freq: number, start: number, dur: number) => {
+        const o = audioContext.createOscillator();
+        const g = audioContext.createGain();
+        o.connect(g);
+        g.connect(audioContext.destination);
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.15, start);
+        g.gain.exponentialRampToValueAtTime(0.01, start + dur);
+        o.start(start);
+        o.stop(start + dur);
+      };
+      t(523, now, 0.12);
+      t(659, now + 0.12, 0.12);
+      t(784, now + 0.24, 0.2);
+    } catch (_) {}
   };
 
   return (
