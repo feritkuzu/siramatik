@@ -192,10 +192,10 @@ export default function DisplayScreen() {
     speakNotification(next.ticketNumber, next.bankId);
   }, [notificationQueue, callNotification, speakNotification]);
 
-  // Overlay'i 3 saniye sonra kapat (ayrı effect — timer cleanup sorunu olmasın)
+  // Overlay'i 5 saniye sonra kapat
   useEffect(() => {
     if (!callNotification) return;
-    const timer = setTimeout(() => setCallNotification(null), 3000);
+    const timer = setTimeout(() => setCallNotification(null), 5000);
     return () => clearTimeout(timer);
   }, [callNotification]);
 
@@ -412,135 +412,60 @@ export default function DisplayScreen() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row gap-8 p-8 overflow-hidden">
-        {/* Called Tickets Section */}
-        <div className="flex-1 flex flex-col">
-          <div className="border-4 border-border p-6 mb-6 relative">
-            <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-border" />
-            <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-border" />
-            <h2 className="text-3xl font-black neon-pink">ÇAĞRILAN NUMARALAR</h2>
+      <div className="flex-1 flex flex-col md:flex-row gap-6 p-6 overflow-hidden">
+        {/* Left - Called Tickets List */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="border-2 border-border p-4 mb-4 flex items-center gap-4">
+            <h2 className="text-2xl font-black neon-pink flex-1">ÇAĞRILAN</h2>
+            <span className="text-sm text-foreground/60">{connectedBankIds?.length || 0} Aktif Banko</span>
           </div>
-
-            {/* Called Tickets Grid */}
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto">
-              {[...calledTickets]
-                .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0))
-                .map((ticket) => (
-              <div
-                key={`${ticket.ticketNumber}-${ticket.bankId}`}
-                className={`border-4 p-4 flex items-center justify-between transition-all duration-300 ${
-                  ticket.completed
-                    ? "border-secondary bg-card/20 opacity-50"
-                    : ticket.isPriority
-                      ? "border-yellow-400 bg-yellow-400/10"
-                      : "border-border bg-card/50"
-                } ${
-                  pulsingTicket === ticket.ticketNumber
-                    ? "bg-primary/20"
-                    : ""
-                }`}
-                style={
-                  pulsingTicket === ticket.ticketNumber
-                    ? {
-                        animation: getAnimationStyle(),
-                      }
-                    : {}
-                }
-              >
-                <div className="flex items-center gap-3">
-                  {ticket.completed ? (
-                    <div className="text-2xl text-green-400">✓</div>
-                  ) : ticket.isPriority ? (
-                    <div className="text-2xl">⭐</div>
-                  ) : null}
-                  <div className={`text-5xl md:text-6xl font-black ${ticket.completed ? 'text-foreground/50' : 'neon-pink'}`}>
-                    {ticket.ticketNumber}
-                  </div>
-                  {ticket.isPriority && !ticket.completed && (
-                    <div className="text-sm text-yellow-400 ml-2">
-                      {getPriorityLabel(ticket.priorityType)}
-                    </div>
-                  )}
+          <div className="flex-1 overflow-y-auto space-y-2">
+            {[...calledTickets]
+              .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0))
+              .map((ticket) => (
+              <div key={`${ticket.ticketNumber}-${ticket.bankId}`}
+                className={`border-2 p-3 flex items-center gap-3 transition-all duration-300 ${
+                  ticket.completed ? "border-secondary bg-card/20 opacity-40" : ticket.isPriority ? "border-yellow-400 bg-yellow-400/10" : "border-border bg-card/30"
+                }`}>
+                <div className={`text-3xl font-black w-16 text-center ${ticket.completed ? "text-foreground/40" : "neon-pink"}`}>
+                  {ticket.ticketNumber}
                 </div>
-                <div className="text-right">
-                  <div className={`text-lg md:text-xl font-black ${ticket.completed ? 'text-foreground/40' : 'neon-blue'}`}>
-                    BANKO {bankMap[ticket.bankId] ?? ticket.bankId}
-                  </div>
-                  {ticket.completed && (
-                    <div className="text-xs text-green-400 mt-1">HİZMET TAMAM</div>
-                  )}
+                <div className="text-lg font-black neon-blue flex-1">
+                  BANKO {bankMap[ticket.bankId] ?? ticket.bankId}
                 </div>
+                {ticket.isPriority && !ticket.completed && (
+                  <span className="text-xs text-yellow-400">{getPriorityLabel(ticket.priorityType)}</span>
+                )}
+                {ticket.completed && <span className="text-xs text-green-400">✓ TAMAM</span>}
               </div>
-              ))}
-
+            ))}
             {calledTickets.length === 0 && (
-              <div className="col-span-full flex items-center justify-center text-2xl text-foreground/50">
-                Bekleniyor...
-              </div>
+              <div className="flex items-center justify-center h-full text-xl text-foreground/40">Bekleniyor...</div>
             )}
           </div>
         </div>
 
-        {/* Waiting Queue Section */}
-        <div className="w-full md:w-80 flex flex-col">
-          <div className="border-4 border-secondary p-6 mb-6 relative">
-            <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-secondary" />
-            <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-secondary" />
-            <h2 className="text-2xl font-black neon-blue">BEKLEME KUYRUĞU</h2>
-            <p className="text-sm text-foreground/60 mt-2">
-              {waitingQueue.length} kişi bekliyor
-            </p>
+        {/* Right - Waiting Queue */}
+        <div className="w-full md:w-72 flex flex-col min-h-0">
+          <div className="border-2 border-secondary p-4 mb-4">
+            <h2 className="text-xl font-black neon-blue">BEKLEYEN</h2>
+            <p className="text-xs text-foreground/60 mt-1">{waitingQueue.length} kişi</p>
           </div>
-
-          {/* Queue List */}
-          <div className="flex-1 overflow-y-auto space-y-2">
-            {waitingQueue.slice(0, 10).map((entry, index) => (
-              <div
-                key={entry.id}
-                className={`border-2 p-3 flex items-center gap-3 ${
-                  entry.isPriority
-                    ? "border-yellow-400 bg-yellow-400/10"
-                    : "border-secondary bg-card/50"
-                }`}
-              >
-                <div className="text-2xl font-black neon-pink w-12 text-center">
-                  {index + 1}
-                </div>
-                <div className="flex-1">
-                  <div className="text-lg font-bold neon-blue flex items-center gap-2">
-                    #{entry.ticketNumber}
-                    {entry.isPriority && (
-                      <span>⭐</span>
-                    )}
-                  </div>
-                  <div className="text-xs text-foreground/60">
-                    {entry.status}
-                    {entry.isPriority && entry.priorityType && (
-                      <span className="ml-2 text-yellow-400">
-                        {entry.priorityType === "elderly" && "(Yaşlı)"}
-                        {entry.priorityType === "disabled" && "(Engelli)"}
-                        {entry.priorityType === "pregnant" && "(Hamile)"}
-                      </span>
-                    )}
-                  </div>
-                </div>
+          <div className="flex-1 overflow-y-auto space-y-1.5">
+            {waitingQueue.slice(0, 15).map((entry, index) => (
+              <div key={entry.id} className={`border p-2 flex items-center gap-2 ${entry.isPriority ? "border-yellow-400 bg-yellow-400/10" : "border-secondary bg-card/30"}`}>
+                <div className="text-lg font-black text-foreground/60 w-8 text-center">{index + 1}</div>
+                <div className="text-lg font-bold neon-blue flex-1">#{entry.ticketNumber}</div>
+                {entry.isPriority && entry.priorityType && (
+                  <span className="text-xs text-yellow-400">
+                    {entry.priorityType === "elderly" ? "Yaşlı" : entry.priorityType === "disabled" ? "Engelli" : "Hamile"}
+                  </span>
+                )}
               </div>
             ))}
-
             {waitingQueue.length === 0 && (
-              <div className="text-center text-foreground/50 py-8">
-                Kuyruk boş
-              </div>
+              <div className="text-center text-foreground/40 py-6 text-sm">Kuyruk boş</div>
             )}
-          </div>
-
-          {/* Stats */}
-          <div className="border-4 border-border p-4 mt-6 text-center">
-            <div className="text-sm text-foreground/60 mb-2">SİSTEM DURUMU</div>
-            <div className="text-3xl font-black neon-pink">
-              {connectedBankIds?.length || 0}
-            </div>
-            <div className="text-xs text-foreground/60">Aktif Banko</div>
           </div>
         </div>
       </div>
@@ -603,13 +528,12 @@ export default function DisplayScreen() {
 
       {/* Call Notification Overlay */}
       {callNotification && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "flashBg 0.3s ease-out" }}>
-          <div className="absolute inset-0 bg-black/80" />
-          <div className="text-center relative z-10">
-            <div className="text-[20vw] md:text-[15vw] font-black neon-pink leading-none mb-4" style={{ animation: "notificationPulse 1s ease-in-out infinite" }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/85 border-8 border-primary px-16 py-12 text-center" style={{ animation: "callFadeIn 0.3s ease-out, callPulse 1s ease-in-out infinite" }}>
+            <div className="text-[15vw] md:text-[10vw] font-black leading-none mb-4" style={{ color: "var(--primary)", textShadow: "0 0 40px var(--primary), 0 0 80px var(--primary)" }}>
               {callNotification.ticketNumber}
             </div>
-            <div className="text-[6vw] md:text-[4vw] font-black neon-blue tracking-widest">
+            <div className="text-[4vw] md:text-[3vw] font-black tracking-widest" style={{ color: "var(--secondary)", textShadow: "0 0 20px var(--secondary)" }}>
               BANKO {bankMap[callNotification.bankId] ?? callNotification.bankId}
             </div>
           </div>
@@ -639,10 +563,13 @@ export default function DisplayScreen() {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes flashBg {
-          0% { background-color: rgba(255, 255, 255, 0.6); }
-          30% { background-color: rgba(255, 0, 255, 0.2); }
-          100% { background-color: transparent; }
+        @keyframes callFadeIn {
+          from { opacity: 0; transform: scale(0.8); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes callPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.85; }
         }
         @keyframes weatherFloat {
           0%, 100% { transform: translateY(0); }
