@@ -776,7 +776,7 @@ export async function requeueEntry(bankId: number, entryId: number): Promise<voi
   try {
     const now = Date.now();
     executeUpdate(
-      "UPDATE queue_entries SET status = 'waiting', called_at = NULL, started_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status IN ('called','serving','no_show')",
+      "UPDATE queue_entries SET status = 'waiting', bank_id = NULL, called_at = NULL, started_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status IN ('called','serving','no_show')",
       [now, entryId]
     );
     executeUpdate(
@@ -800,7 +800,7 @@ export async function getSkippedEntries(): Promise<any[]> {
   }
 }
 
-export async function skipNoShow(bankId: number, entryId: number): Promise<any | null> {
+export async function skipNoShow(bankId: number, entryId: number): Promise<void> {
   try {
     const now = Date.now();
     executeUpdate(
@@ -811,12 +811,9 @@ export async function skipNoShow(bankId: number, entryId: number): Promise<any |
       "UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL, updated_at = ? WHERE id = ? AND current_queue_entry_id = ?",
       [now, bankId, entryId]
     );
-    // Call next customer
-    const nextEntry = await callNextCustomer(bankId);
-    return nextEntry;
   } catch (error) {
     console.error("[Database] Failed to skip no-show entry:", error);
-    return null;
+    throw error;
   }
 }
 

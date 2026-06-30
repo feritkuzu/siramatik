@@ -204,19 +204,9 @@ export const appRouter = router({
     // Skip no-show customer and call next
     skipNoShow: publicProcedure
       .input(z.object({ bankId: z.number(), entryId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        const nextCustomer = await db.skipNoShow(input.bankId, input.entryId);
-        if (nextCustomer) {
-          emitCustomerCalled({
-            ticketNumber: nextCustomer.ticketNumber,
-            bankId: input.bankId,
-            entryId: nextCustomer.id,
-            phoneNumber: nextCustomer.phoneNumber,
-            isPriority: nextCustomer.priorityType && nextCustomer.priorityType !== "none",
-            priorityType: nextCustomer.priorityType,
-          });
-        }
-        return { success: true, nextCustomer };
+      .mutation(async ({ input }) => {
+        await db.skipNoShow(input.bankId, input.entryId);
+        return { success: true };
       }),
 
     requeueEntry: publicProcedure

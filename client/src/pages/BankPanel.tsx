@@ -249,11 +249,11 @@ export default function BankPanel() {
     if (!myBank || !currentCustomer) return;
     setIsLoading(true);
     try {
-      const result = await skipNoShowMutation.mutateAsync({
+      await skipNoShowMutation.mutateAsync({
         bankId: myBank.id,
         entryId: currentCustomer.id,
       });
-      setCurrentCustomer(result.nextCustomer || null);
+      setCurrentCustomer(null);
       setIsReceived(false);
       await refetchBanks();
     } catch (error) {
