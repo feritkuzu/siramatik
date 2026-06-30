@@ -30,13 +30,43 @@ if ($Setup) {
 if ($Kapat) {
     Write-Host "Sistem kapatiliyor..." -ForegroundColor Yellow
     Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
-    Get-Process -Name "msedge","chrome","Siramatik*" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" -or $_.MainWindowTitle -like "*SIRAMATIK*" } | Stop-Process -ErrorAction SilentlyContinue
+    Get-Process -Name "msedge","chrome","Siramatik*" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" -or $_.MainWindowTitle -like "*kiosk*" -or $_.MainWindowTitle -like "*admin*" -or $_.MainWindowTitle -like "*SIRAMATIK*" } | Stop-Process -ErrorAction SilentlyContinue
+    Remove-Item -Path "$env:TEMP\siramatik-locks" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$env:TEMP\siramatik-kiosk-profile" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$env:TEMP\siramatik-display-profile" -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "[OK] Sistem durduruldu." -ForegroundColor Green
     exit 0
 }
 
+# === Lock helpers to prevent duplicate windows ===
+$LOCK_DIR = "$env:TEMP\siramatik-locks"
+if (-not (Test-Path $LOCK_DIR)) { New-Item -ItemType Directory -Path $LOCK_DIR -Force | Out-Null }
+
+function Is-WindowOpen($name) {
+    $lockFile = Join-Path $LOCK_DIR "$name.lock"
+    if (Test-Path $lockFile) {
+        $lockPid = Get-Content $lockFile -Raw -ErrorAction SilentlyContinue
+        if ($lockPid) { $lockPid = $lockPid.Trim() }
+        if ($lockPid -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) { return $true }
+        else { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+    }
+    return $false
+}
+
+function Set-Lock($name) {
+    $lockFile = Join-Path $LOCK_DIR "$name.lock"
+    $targetPid = $null
+    if ($name -eq "electron") { $targetPid = (Get-Process -Name "Siramatik*" -ErrorAction SilentlyContinue | Select-Object -First 1).Id }
+    if (-not $targetPid) { $targetPid = $global:PID }
+    Set-Content -Path $lockFile -Value $targetPid -NoNewline
+}
+
 # === MAIN START ===
 $host.ui.RawUI.WindowTitle = "SIRAMATIK"
+
+# Clean all stale lock files at startup
+Remove-Item -Path "$env:TEMP\siramatik-locks\*.lock" -Force -ErrorAction SilentlyContinue
+
 Write-Host "==============================" -ForegroundColor Magenta
 Write-Host "     S I R A M A T I K       " -ForegroundColor Cyan
 Write-Host "==============================" -ForegroundColor Magenta
@@ -46,8 +76,8 @@ Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -n
 Start-Sleep 2
 
 # Start server
-$serverJob = Start-Job -ScriptBlock {
-    Set-Location -LiteralPath "$using:SCRIPT_DIR"
+$serverJob = Start-Job -Name "ServerJob" -ScriptBlock {
+    Set-Location -LiteralPath "C:\wamp64\www\siramatik"
     if (Test-Path "dist/index.js") {
         $env:NODE_ENV = "production"
         node dist/index.js
@@ -63,7 +93,7 @@ $ready = $false
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep 1
     try {
-        $req = [System.Net.WebRequest]::Create("http://localhost:${PORT}/api/trpc/queue.getStats")
+        $req = [System.Net.WebRequest]::Create("http://127.0.0.1:${PORT}/api/trpc/queue.getStats")
         $req.Timeout = 1000
         $resp = $req.GetResponse()
         $resp.Close()
@@ -81,26 +111,23 @@ Write-Host "[2/3] Sunucu hazir! Ekranlar aciliyor..." -ForegroundColor Green
 # === Detect displays ===
 Add-Type -AssemblyName System.Windows.Forms
 $screens = [System.Windows.Forms.Screen]::AllScreens
+$primaryScreen = $screens | Where-Object { $_.Primary }
 
-# Find the display screen (non-primary with largest area)
-$displayScreen = $null
+# Find the extended (non-primary) display with largest area
+$extendedScreen = $null
 foreach ($s in $screens) {
     if ($s.Primary) { continue }
     $area = $s.Bounds.Width * $s.Bounds.Height
-    if (-not $displayScreen -or $area -gt ($displayScreen.Bounds.Width * $displayScreen.Bounds.Height)) {
-        $displayScreen = $s
+    if (-not $extendedScreen -or $area -gt ($extendedScreen.Bounds.Width * $extendedScreen.Bounds.Height)) {
+        $extendedScreen = $s
     }
 }
 
-# Fallback: if only one screen or no extended found, use primary
-if (-not $displayScreen) { $displayScreen = $screens[0] }
+# Fallback: if only one screen, use it for both
+if (-not $extendedScreen) { $extendedScreen = $primaryScreen }
 
-$dx = $displayScreen.Bounds.X
-$dy = $displayScreen.Bounds.Y
-$dw = $displayScreen.Bounds.Width
-$dh = $displayScreen.Bounds.Height
-
-Write-Host "[!] Display: $($displayScreen.DeviceName) (${dw}x${dh} @${dx},${dy})" -ForegroundColor Cyan
+Write-Host "[!] 1.Ekran (Kiosk): $($primaryScreen.DeviceName) $($primaryScreen.Bounds.Width)x$($primaryScreen.Bounds.Height)" -ForegroundColor Cyan
+Write-Host "[!] 2.Ekran (Display): $($extendedScreen.DeviceName) $($extendedScreen.Bounds.Width)x$($extendedScreen.Bounds.Height) @$($extendedScreen.Bounds.X),$($extendedScreen.Bounds.Y)" -ForegroundColor Cyan
 
 # Find browser
 $browserPath = $null
@@ -111,36 +138,51 @@ else {
     if ($bkey) { $browserPath = $bkey."(default)" }
 }
 
-# Open display on the target monitor using kiosk mode
-$displayUrl = "http://localhost:${PORT}/display"
-if ($browserPath) {
-    $browserDir = Split-Path -Parent $browserPath
-    $tempProfile = Join-Path $env:TEMP "siramatik-display-profile"
-    if (Test-Path $tempProfile) { Remove-Item -Path $tempProfile -Recurse -Force -ErrorAction SilentlyContinue }
-    Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfile`" --no-first-run --no-default-browser-check --new-window --kiosk --window-position=$dx,$dy --window-size=$dw,$dh `"$displayUrl`""
-    Write-Host "  -> Display acildi (kiosk mod)" -ForegroundColor Green
-} else {
-    Start-Process "ms-edge:$displayUrl"
-    Write-Host "  -> Display Edge ile acildi (F11 ile tam ekran yapin)" -ForegroundColor Yellow
-}
+# 1. Kiosk panel on PRIMARY monitor - full screen
+$EDGE_FLAGS = "--no-first-run --no-default-browser-check --disable-extensions --disable-background-networking --no-experiments --disable-component-extensions-with-background-pages --disable-notifications --disable-infobars --disable-sync --disable-signin-promo --disable-translate --disable-features=Translate,msTranslate,msEdgeTranslate,DownloadBubble,DownloadBubbleV2,MsEdgeUpdate,EdgeShoppingAssistant,EdgeSidebar,msUndersideButton,msHubApps,msPageHun,msShortcuts,msRecommendedExtensions,ExtensionsMenu"
 
-# Open Siramatik on primary monitor (manage/admin panel)
-$electronPath = Join-Path $SCRIPT_DIR "release\win-unpacked\Siramatik Banko Paneli.exe"
-if (Test-Path $electronPath) {
-    Start-Process -FilePath $electronPath
-    Write-Host "  -> Banko Paneli (Electron) acildi" -ForegroundColor Green
-    Start-Sleep 2
-    # Also open browser on primary monitor for admin
-    $adminUrl = "http://localhost:${PORT}/admin"
+# Clean old profiles once to remove any cached extension data
+Remove-Item -Path "$env:TEMP\siramatik-kiosk-profile" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$env:TEMP\siramatik-display-profile" -Recurse -Force -ErrorAction SilentlyContinue
+$kioskUrl = "http://localhost:${PORT}/kiosk"
+    if (-not (Is-WindowOpen "kiosk")) {
     if ($browserPath) {
-        $tempProfile2 = Join-Path $env:TEMP "siramatik-admin-profile"
-        if (Test-Path $tempProfile2) { Remove-Item $tempProfile2 -Recurse -Force -ErrorAction SilentlyContinue }
-        Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfile2`" --no-first-run --new-window `"$adminUrl`""
-        Write-Host "  -> Admin panel (tarayici) acildi" -ForegroundColor Green
+        $tempProfileKiosk = Join-Path $env:TEMP "siramatik-kiosk-profile"
+        $pkx = $primaryScreen.Bounds.X
+        $pky = $primaryScreen.Bounds.Y
+        $pkw = $primaryScreen.Bounds.Width
+        $pkh = $primaryScreen.Bounds.Height
+        $proc = Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfileKiosk`" $EDGE_FLAGS --new-window --kiosk --edge-kiosk-type=fullscreen --window-position=$pkx,$pky --window-size=$pkw,$pkh `"$kioskUrl`"" -PassThru
+        Set-Content -Path (Join-Path $LOCK_DIR "kiosk.lock") -Value $proc.Id -NoNewline
+        Write-Host "  -> Kiosk (1.Ekran) acildi - tam ekran" -ForegroundColor Green
+    } else {
+        Start-Process "ms-edge:$kioskUrl"
+        Set-Lock "kiosk"
+        Write-Host "  -> Kiosk Edge ile acildi (F11 ile tam ekran yapin)" -ForegroundColor Yellow
     }
 } else {
-    Start-Process "http://localhost:${PORT}/"
-    Write-Host "  -> Ana sayfa (tarayici) acildi" -ForegroundColor Green
+    Write-Host "  -> Kiosk penceresi zaten acik, yenisi acilmadi" -ForegroundColor Cyan
+}
+
+# 2. Display panel on EXTENDED monitor - full screen
+$displayUrl = "http://localhost:${PORT}/display"
+if (-not (Is-WindowOpen "display")) {
+    if ($browserPath) {
+        $tempProfileDisplay = Join-Path $env:TEMP "siramatik-display-profile"
+        $dex = $extendedScreen.Bounds.X
+        $dey = $extendedScreen.Bounds.Y
+        $dew = $extendedScreen.Bounds.Width
+        $deh = $extendedScreen.Bounds.Height
+        $proc2 = Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfileDisplay`" $EDGE_FLAGS --new-window --kiosk --edge-kiosk-type=fullscreen --window-position=$dex,$dey --window-size=$dew,$deh `"$displayUrl`"" -PassThru
+        Set-Content -Path (Join-Path $LOCK_DIR "display.lock") -Value $proc2.Id -NoNewline
+        Write-Host "  -> Display (2.Ekran) acildi - tam ekran" -ForegroundColor Green
+    } else {
+        Start-Process "ms-edge:$displayUrl"
+        Set-Lock "display"
+        Write-Host "  -> Display Edge ile acildi (F11 ile tam ekran yapin)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  -> Display penceresi zaten acik, yenisi acilmadi" -ForegroundColor Cyan
 }
 
 Write-Host "[3/3] Sistem calisiyor!" -ForegroundColor Green

@@ -9,11 +9,53 @@ interface SocketUser {
 }
 
 const socketUsers = new Map<string, SocketUser>();
+let ioInstance: SocketIOServer | null = null;
+
+export function getIO(): SocketIOServer | null {
+  return ioInstance;
+}
+
+export function emitCustomerCalled(data: {
+  ticketNumber: number;
+  bankId: number;
+  entryId: number;
+  phoneNumber?: string;
+  isPriority?: boolean;
+  priorityType?: string;
+}) {
+  const io = getIO();
+  if (!io) return;
+
+  io.emit("customer:called", {
+    ...data,
+    timestamp: Date.now(),
+  });
+
+  io.emit("notification:play", {
+    type: "customer_called",
+    ticketNumber: data.ticketNumber,
+    bankId: data.bankId,
+  });
+}
+
+export function emitServiceCompleted(data: {
+  ticketNumber: number;
+  bankId: number;
+  entryId: number;
+}) {
+  const io = getIO();
+  if (!io) return;
+
+  io.emit("service:completed", {
+    ...data,
+    timestamp: Date.now(),
+  });
+}
 
 export function setupSocketIO(httpServer: HTTPServer) {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: "*",
+      origin: ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"],
       methods: ["GET", "POST"],
     },
   });
@@ -140,6 +182,7 @@ export function setupSocketIO(httpServer: HTTPServer) {
     });
   });
 
+  ioInstance = io;
   return io;
 }
 
@@ -182,4 +225,14 @@ export function emitToBank(io: SocketIOServer, bankId: number, event: string, da
   clients.forEach((client) => {
     io.to(client.id).emit(event, data);
   });
+}
+
+export function getConnectedBankIds(): number[] {
+  const bankIds = new Set<number>();
+  for (const user of socketUsers.values()) {
+    if (user.type === "bank" && user.bankId) {
+      bankIds.add(user.bankId);
+    }
+  }
+  return Array.from(bankIds);
 }

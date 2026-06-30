@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { randomBytes } from "crypto";
+
+const superadminTokens = new Map<string, number>(); // token -> expiry
+import { generateCSV, generatePDF, generateFilename } from "./_core/export";
 import { printTicket } from "./_core/printer";
 import { printUSBTicket, initializeUSBPrinter, testUSBPrinter, listUSBPrinters } from "./_core/printer-usb";
 import { listWindowsPrinters, getPrinterSettings, updatePrinterSettings, testWindowsPrinter, printTicketToWindowsPrinter } from "./_core/windows-printer";
+import { getConnectedBankIds, getIO, emitCustomerCalled, emitServiceCompleted } from "./_core/socket";
 import { listWindowsPrinters as listNativePrinters, getDefaultPrinter, printToWindowsPrinter, testPrintToWindowsPrinter, generateTicketContent } from "./_core/native-printer";
 
 export const appRouter = router({
@@ -15,6 +20,23 @@ export const appRouter = router({
       try {
         const config = await db.getSystemConfig();
         if (!config) throw new Error("System not initialized");
+        if (!config.isSystemActive) throw new Error("SİSTEM KAPALI");
+        
+        // Check business hours and working days
+        const now = new Date();
+        const day = now.getDay();
+        const minutes = now.getHours() * 60 + now.getMinutes();
+        const days = (config.workingDays || "1,2,3,4,5").split(",").map(Number);
+        const start = (config.businessHoursStart || "09:00").split(":").map(Number);
+        const end = (config.businessHoursEnd || "18:00").split(":").map(Number);
+        const startMin = start[0] * 60 + start[1];
+        const endMin = end[0] * 60 + end[1];
+        if (!days.includes(day)) throw new Error("BUGÜN ÇALIŞMA GÜNÜ DEĞİL");
+        if (minutes < startMin || minutes >= endMin) {
+          // Past closing time - auto-clear queue
+          try { await db.resetQueue(); } catch {}
+          throw new Error("ÇALIŞMA SAATLERİ DIŞINDA");
+        }
         
         const ticketNumber = await db.incrementQueueNumber();
         const entry = await db.createQueueEntry(ticketNumber, "none", input.phoneNumber);
@@ -73,6 +95,7 @@ export const appRouter = router({
         try {
           const config = await db.getSystemConfig();
           if (!config) throw new Error("System not initialized");
+          if (!config.isSystemActive) throw new Error("SİSTEM KAPALI");
           
           const ticketNumber = await db.incrementQueueNumber();
           const entry = await db.createQueueEntry(ticketNumber, input.priorityType, input.phoneNumber);
@@ -106,6 +129,11 @@ export const appRouter = router({
       return await db.getWaitingQueue();
     }),
 
+    // Get currently called entries (for display screen sync)
+    getActiveCalled: publicProcedure.query(async () => {
+      return await db.getActiveCalledEntries();
+    }),
+
     // Get next waiting entry
     getNextWaitingEntry: publicProcedure.query(async () => {
       return await db.getNextWaitingEntry();
@@ -127,34 +155,96 @@ export const appRouter = router({
 
     // Call next customer for a bank
     callNext: publicProcedure
-      .input(z.object({ bankId: z.number() }))
+      .input(z.object({ bankId: z.number(), operatorId: z.number().optional() }))
       .mutation(async ({ input }) => {
-        const result = await db.callNextCustomer(input.bankId);
+        const result = await db.callNextCustomer(input.bankId, input.operatorId);
         if (!result) throw new Error("No waiting customers");
         await db.logSystemEvent("customer_called", input.bankId, result.id, {
           ticketNumber: result.ticketNumber,
+        });
+        emitCustomerCalled({
+          ticketNumber: result.ticketNumber,
+          bankId: input.bankId,
+          entryId: result.id,
+          phoneNumber: result.phoneNumber,
+          isPriority: result.priorityType && result.priorityType !== "none",
+          priorityType: result.priorityType,
         });
         return result;
       }),
 
     // Call specific customer from waiting queue (urgent / special call)
     callSpecific: publicProcedure
-      .input(z.object({ bankId: z.number(), entryId: z.number() }))
+      .input(z.object({ bankId: z.number(), entryId: z.number(), operatorId: z.number().optional() }))
       .mutation(async ({ input }) => {
-        const result = await db.callSpecificEntry(input.bankId, input.entryId);
+        const result = await db.callSpecificEntry(input.bankId, input.entryId, input.operatorId);
         if (!result) throw new Error("Customer not found or already called");
         await db.logSystemEvent("customer_called_specific", input.bankId, result.id, {
           ticketNumber: result.ticketNumber,
         });
+        emitCustomerCalled({
+          ticketNumber: result.ticketNumber,
+          bankId: input.bankId,
+          entryId: result.id,
+          phoneNumber: result.phoneNumber,
+          isPriority: result.priorityType && result.priorityType !== "none",
+          priorityType: result.priorityType,
+        });
         return result;
       }),
+
+    // Mark customer as arrived (ticket received at counter)
+    markReceived: publicProcedure
+      .input(z.object({ entryId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.markReceived(input.entryId);
+        return { success: true };
+      }),
+
+    // Skip no-show customer and call next
+    skipNoShow: publicProcedure
+      .input(z.object({ bankId: z.number(), entryId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const nextCustomer = await db.skipNoShow(input.bankId, input.entryId);
+        if (nextCustomer) {
+          emitCustomerCalled({
+            ticketNumber: nextCustomer.ticketNumber,
+            bankId: input.bankId,
+            entryId: nextCustomer.id,
+            phoneNumber: nextCustomer.phoneNumber,
+            isPriority: nextCustomer.priorityType && nextCustomer.priorityType !== "none",
+            priorityType: nextCustomer.priorityType,
+          });
+        }
+        return { success: true, nextCustomer };
+      }),
+
+    requeueEntry: publicProcedure
+      .input(z.object({ bankId: z.number(), entryId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.requeueEntry(input.bankId, input.entryId);
+        return { success: true };
+      }),
+
+    // Get skipped (no-show) entries
+    getSkippedEntries: publicProcedure.query(async () => {
+      return db.getSkippedEntries();
+    }),
 
     // Complete service for a bank
     completeService: publicProcedure
       .input(z.object({ bankId: z.number(), entryId: z.number() }))
       .mutation(async ({ input }) => {
+        const entry = await db.getQueueEntryById(input.entryId);
         await db.completeService(input.bankId, input.entryId);
         await db.logSystemEvent("service_completed", input.bankId, input.entryId, {});
+        if (entry) {
+          emitServiceCompleted({
+            ticketNumber: entry.ticketNumber,
+            bankId: input.bankId,
+            entryId: input.entryId,
+          });
+        }
         return { success: true };
       }),
 
@@ -177,6 +267,7 @@ export const appRouter = router({
           waitingCount: waiting.length,
           totalProcessed: completed.totalProcessed,
           totalCompleted: completed.totalProcessed,
+          totalNoShow: completed.totalNoShow,
           averageServiceTime: completed.averageServiceTime,
           averageWaitTime: 0,
         };
@@ -217,15 +308,26 @@ export const appRouter = router({
       return await db.getAvailableBank();
     }),
 
-    // Get my bank based on client IP
-    getMyBank: publicProcedure.query(async ({ ctx }) => {
-      const clientIp = ctx.req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || ctx.req.socket.remoteAddress || "";
-      const ip = clientIp.replace(/^::ffff:/, "");
-      if (!ip) return null;
-      const banks = await db.getAllBanks();
-      const bank = banks.find((b: any) => b.ipAddress === ip);
-      return bank || null;
-    }),
+    // Get my bank based on MAC address (or IP as fallback)
+    getMyBank: publicProcedure
+      .input(z.object({ macAddress: z.string().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        // Try MAC address first (from client/Electron)
+        if (input?.macAddress) {
+          const banks = await db.getAllBanks();
+          const bank = banks.find((b: any) => b.macAddress === input.macAddress);
+          if (bank) return bank;
+        }
+        // Fallback to IP-based detection
+        const clientIp = ctx.req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || ctx.req.socket.remoteAddress || "";
+        const ip = clientIp.replace(/^::ffff:/, "");
+        if (ip) {
+          const banks = await db.getAllBanks();
+          const bank = banks.find((b: any) => b.ipAddress === ip);
+          if (bank) return bank;
+        }
+        return null;
+      }),
   }),
 
   admin: router({
@@ -241,6 +343,16 @@ export const appRouter = router({
           throw error;
         }
       }),
+
+    // Shutdown system
+    shutdown: publicProcedure.mutation(async () => {
+      await db.shutdownSystem();
+      const io = getIO();
+      if (io) {
+        io.emit("system:shutdown", { timestamp: Date.now() });
+      }
+      return { success: true };
+    }),
 
     // Get system config
     getConfig: publicProcedure.query(async () => {
@@ -258,9 +370,49 @@ export const appRouter = router({
         businessHoursEnd: config.businessHoursEnd,
         kioskMessage: config.kioskMessage,
         kioskMode: config.kioskMode,
+        weatherCity: config.weatherCity || "",
+        themeBg: config.themeBg || "#000000",
+        themeText: config.themeText || "#ffffff",
+        themeHeader: config.themeHeader || "#ff006e",
+        themeSubheader: config.themeSubheader || "#00d9ff",
+        themeFont: config.themeFont || "Courier New, monospace",
+        themeBorder: config.themeBorder || "#1b98a0",
+        announcements: config.announcements || "",
+        tickerSpeed: config.tickerSpeed ?? 8,
+        tickerFontSize: config.tickerFontSize ?? 22,
+        workingDays: config.workingDays || "1,2,3,4,5",
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       };
+    }),
+
+    // Superadmin passcode verification
+    verifyPasscode: publicProcedure
+      .input(z.object({ passcode: z.string() }))
+      .mutation(async ({ input }) => {
+        const config = await db.getSystemConfig();
+        if (!config || config.superadminPasscode !== input.passcode) {
+          return { success: false, token: null };
+        }
+        const token = randomBytes(32).toString("hex");
+        superadminTokens.set(token, Date.now() + 3600000);
+        return { success: true, token };
+      }),
+
+    validateSuperadminToken: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .query(async ({ input }) => {
+        const expiry = superadminTokens.get(input.token);
+        if (!expiry || expiry < Date.now()) {
+          superadminTokens.delete(input.token);
+          return { valid: false };
+        }
+        return { valid: true };
+      }),
+
+    // Get currently connected bank IDs (via socket)
+    getConnectedBanks: publicProcedure.query(async () => {
+      return getConnectedBankIds();
     }),
 
     // Update bank count
@@ -290,6 +442,7 @@ export const appRouter = router({
         assignedOperatorId: bank.assignedOperatorId,
         totalServed: bank.totalServed,
         ipAddress: bank.ipAddress || "",
+        macAddress: bank.macAddress || "",
         createdAt: bank.createdAt,
         updatedAt: bank.updatedAt,
       }));
@@ -359,6 +512,13 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    updateBankMacAddress: publicProcedure
+      .input(z.object({ bankId: z.number(), macAddress: z.string().max(17) }))
+      .mutation(async ({ input }) => {
+        await db.updateBankMacAddress(input.bankId, input.macAddress);
+        return { success: true };
+      }),
+
     // Update system settings
     updateSystemSettings: publicProcedure
       .input(z.object({
@@ -369,6 +529,20 @@ export const appRouter = router({
         businessHoursEnd: z.string().max(5).optional(),
         kioskMessage: z.string().max(500).optional(),
         kioskMode: z.enum(["touch", "usb_keypad", "single_button"]).optional(),
+        weatherCity: z.string().max(100).optional(),
+        themeBg: z.string().max(20).optional(),
+        themeText: z.string().max(20).optional(),
+        themeHeader: z.string().max(20).optional(),
+        themeSubheader: z.string().max(20).optional(),
+        themeFont: z.string().max(100).optional(),
+        themeBorder: z.string().max(20).optional(),
+        announcements: z.string().max(2000).optional(),
+        tickerSpeed: z.number().min(3).max(30).optional(),
+        tickerFontSize: z.number().min(12).max(60).optional(),
+        workingDays: z.string().max(20).optional(),
+        serialBtn1Action: z.enum(["simple_ticket", "normal_ticket", "priority_elderly", "priority_disabled", "priority_pregnant"]).optional(),
+        serialBtn2Action: z.enum(["simple_ticket", "normal_ticket", "priority_elderly", "priority_disabled", "priority_pregnant"]).optional(),
+        isSystemActive: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         await db.updateSystemConfig(input);
@@ -732,12 +906,8 @@ export const appRouter = router({
 
     getBankPerformance: publicProcedure.query(async () => {
       try {
-        const banks = await db.getAllBanks();
-        return banks.map(bank => ({
-          bankNumber: bank.bankNumber,
-          totalServed: bank.totalServed,
-          isActive: bank.isActive,
-        }));
+        const metrics = await db.getBankPerformanceStats();
+        return metrics;
       } catch (error) {
         console.error("Failed to get bank performance:", error);
         throw error;
@@ -748,7 +918,7 @@ export const appRouter = router({
       .input(z.object({ date: z.date() }))
       .query(async ({ input }) => {
         try {
-          const stats = await db.getSystemStats(input.date, new Date(input.date.getTime() + 24 * 60 * 60 * 1000));
+          const stats = await db.getDailyStatsData(input.date);
           return stats;
         } catch (error) {
           console.error("Failed to get daily stats:", error);
@@ -760,13 +930,90 @@ export const appRouter = router({
       .input(z.object({ date: z.date() }))
       .query(async ({ input }) => {
         try {
-          const stats = await db.getSystemStats(input.date, new Date(input.date.getTime() + 60 * 60 * 1000));
+          const stats = await db.getHourlyStatsData(input.date);
           return stats;
         } catch (error) {
           console.error("Failed to get hourly stats:", error);
           throw error;
         }
       }),
+
+    getOperatorPerformance: publicProcedure
+      .input(z.object({ startDate: z.date().optional(), endDate: z.date().optional() }))
+      .query(async ({ input }) => {
+        try {
+          const stats = await db.getOperatorPerformanceStats(input.startDate, input.endDate);
+          return stats;
+        } catch (error) {
+          console.error("Failed to get operator performance:", error);
+          throw error;
+        }
+      }),
+
+    exportOperatorPerformance: publicProcedure
+      .input(z.object({ startDate: z.date().optional(), endDate: z.date().optional(), format: z.enum(["csv", "pdf"]) }))
+      .query(async ({ input }) => {
+        try {
+          const data = await db.getOperatorPerformanceStats(input.startDate, input.endDate);
+          const rows = data.flatMap((op: any) =>
+            op.banks && op.banks.length > 0
+              ? op.banks.map((b: any) => ({
+                  "Kullanıcı": op.operatorName,
+                  "Toplam Hizmet": op.totalServed,
+                  "Ortalama Süre (sn)": op.avgServiceTimeMs > 0 ? Math.round(op.avgServiceTimeMs / 1000) : 0,
+                  "Çalışılan Banko": `Banko ${b.bankNumber}`,
+                  "O Bankodaki Hizmet": b.count,
+                }))
+              : [{
+                  "Kullanıcı": op.operatorName,
+                  "Toplam Hizmet": op.totalServed,
+                  "Ortalama Süre (sn)": op.avgServiceTimeMs > 0 ? Math.round(op.avgServiceTimeMs / 1000) : 0,
+                  "Çalışılan Banko": "-",
+                  "O Bankodaki Hizmet": 0,
+                }]
+          );
+          const columns = ["Kullanıcı", "Toplam Hizmet", "Ortalama Süre (sn)", "Çalışılan Banko", "O Bankodaki Hizmet"];
+          const filename = generateFilename("kullanici- performansi", input.format);
+
+          if (input.format === "csv") {
+            const csv = generateCSV({ title: "Kullanıcı Performans Raporu", filename, columns, data: rows });
+            return { content: csv, filename, type: "text/csv" };
+          } else {
+            const pdf = await generatePDF({ title: "Kullanıcı Performans Raporu", filename, columns, data: rows });
+            return { content: pdf.toString("base64"), filename, type: "application/pdf" };
+          }
+        } catch (error) {
+          console.error("Failed to export operator performance:", error);
+          throw error;
+        }
+      }),
+  }),
+
+  weather: router({
+    getCurrent: publicProcedure.query(async () => {
+      try {
+        const config = await db.getSystemConfig();
+        const city = config?.weatherCity || "";
+        if (!city) return null;
+        const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=tr`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const current = data?.current_condition?.[0];
+        if (!current) return null;
+        return {
+          temp: current.temp_C,
+          desc: current.weatherDesc?.[0]?.value || "",
+          code: current.weatherCode || "",
+          icon: current.weatherIconUrl?.[0]?.value || "",
+          humidity: current.humidity,
+          windSpeed: current.windspeedKmph,
+        };
+      } catch {
+        return null;
+      }
+    }),
   }),
 
   auth: router({

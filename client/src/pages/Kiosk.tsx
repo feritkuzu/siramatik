@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useSocket } from "@/hooks/useSocket";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,23 @@ export default function Kiosk() {
   const [bankCount, setBankCount] = useState(2);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const cooldownRef = useRef(0);
+  const [ticketCooldown, setTicketCooldown] = useState(0);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (ticketCooldown <= 0) return;
+    const id = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((cooldownRef.current - Date.now()) / 1000));
+      setTicketCooldown(remaining);
+      if (remaining <= 0) clearInterval(id);
+    }, 200);
+    return () => clearInterval(id);
+  }, [ticketCooldown]);
 
   // Check system config
   const { data: config } = trpc.admin.getConfig.useQuery(undefined, {
-    refetchInterval: 2000,
+    refetchInterval: 10000,
   });
 
   const createTicketMutation = trpc.queue.createTicket.useMutation();
@@ -32,6 +46,21 @@ export default function Kiosk() {
   );
   const initSystemMutation = trpc.admin.initialize.useMutation();
   const { emit } = useSocket("kiosk");
+
+  // Apply theme
+  useEffect(() => {
+    if (config) {
+      const c = config as any;
+      const root = document.documentElement;
+      root.style.setProperty("--background", c.themeBg || "#0d1b2a");
+      root.style.setProperty("--foreground", c.themeText || "#e0e1dd");
+      root.style.setProperty("--card", c.themeBg || "#0d1b2a");
+      root.style.setProperty("--primary", c.themeHeader || "#1b98a0");
+      root.style.setProperty("--secondary", c.themeSubheader || "#415a77");
+      root.style.setProperty("--border", c.themeBorder || "#1b98a0");
+      document.body.style.fontFamily = c.themeFont || "Segoe UI, sans-serif";
+    }
+  }, [config]);
 
   // Monitor system status
   useEffect(() => {
@@ -68,6 +97,7 @@ export default function Kiosk() {
         setEstimatedWaitTime(null);
         setIsPriority(false);
         setPriorityType("none");
+        setPhoneNumber("");
       }, 3000);
       return () => clearTimeout(timer);
     }
@@ -91,9 +121,19 @@ export default function Kiosk() {
     }
   }, [estimatedWaitTimeQuery.data]);
 
+  const setCooldown = useCallback(() => {
+    cooldownRef.current = Date.now() + 5000;
+    setTicketCooldown(5);
+  }, []);
+
   const handleGetTicket = async () => {
+    if (Date.now() < cooldownRef.current) return;
+    if (config && !(config as any)?.isSystemActive) {
+      toast.error("Sistem kapalı");
+      return;
+    }
     if (systemNotInitialized) {
-      alert("Sistem henüz başlatılmadı. Lütfen Admin Panelinden sistemi başlatın.");
+      toast.error("Sistem henüz başlatılmadı");
       return;
     }
     
@@ -113,6 +153,7 @@ export default function Kiosk() {
       setCountdownSeconds(5);
       setIsPriority(false);
       setPhoneError("");
+      setCooldown();
 
       // Emit socket event
       emit("ticket:created", {
@@ -129,8 +170,13 @@ export default function Kiosk() {
   };
 
   const handleGetPriorityTicket = async (type: "elderly" | "disabled" | "pregnant") => {
+    if (Date.now() < cooldownRef.current) return;
+    if (config && !(config as any)?.isSystemActive) {
+      toast.error("Sistem kapalı");
+      return;
+    }
     if (systemNotInitialized) {
-      alert("Sistem henüz başlatılmadı. Lütfen Admin Panelinden sistemi başlatın.");
+      toast.error("Sistem henüz başlatılmadı");
       return;
     }
     
@@ -150,6 +196,7 @@ export default function Kiosk() {
       setIsPriority(true);
       setPriorityType(type);
       setPhoneError("");
+      setCooldown();
 
       // Emit socket event
       emit("ticket:created", {
@@ -203,6 +250,106 @@ export default function Kiosk() {
     return () => window.removeEventListener("keydown", handler);
   }, [kioskMode, phoneNumber, showSuccess]);
 
+  // Serial port connection for Arduino buttons
+  const [serialConnected, setSerialConnected] = useState(false);
+  const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
+  const portRef = useRef<any>(null);
+  const actionsRef = useRef({ btn1: "simple_ticket", btn2: "priority_elderly" });
+
+  // Keep actions ref in sync with config
+  useEffect(() => {
+    actionsRef.current = {
+      btn1: (config as any)?.serialBtn1Action || "simple_ticket",
+      btn2: (config as any)?.serialBtn2Action || "priority_elderly",
+    };
+  }, [config]);
+
+  // Refs for latest callback functions so serial loop always has current versions
+  const fnRef = useRef({
+    simple: () => {}, normal: () => {},
+    prioE: (_t: string) => {}, prioD: (_t: string) => {}, prioP: (_t: string) => {},
+  });
+  useEffect(() => {
+    fnRef.current = {
+      simple: handleGetTicketSimple,
+      normal: handleGetTicket,
+      prioE: (t: string) => handleGetPriorityTicket(t as any),
+      prioD: (t: string) => handleGetPriorityTicket(t as any),
+      prioP: (t: string) => handleGetPriorityTicket(t as any),
+    };
+  });
+
+  const connectSerial = async () => {
+    try {
+      const port = await (navigator as any).serial.requestPort();
+      await port.open({ baudRate: 9600 });
+      portRef.current = port;
+      localStorage.setItem("kiosk-serial-authorized", "1");
+      const decoder = new TextDecoderStream();
+      port.readable.pipeTo(decoder.writable);
+      const inputStream = decoder.readable;
+      readerRef.current = inputStream.getReader();
+      setSerialConnected(true);
+      readSerialLoop();
+    } catch (e) {
+      if ((e as Error).name !== "NotFoundError") console.error("Serial connect failed:", e);
+    }
+  };
+
+  const readSerialLoop = async () => {
+    const reader = readerRef.current;
+    if (!reader) return;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const lines = (value as string).split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          console.log("[Serial]", trimmed);
+          const { btn1, btn2 } = actionsRef.current;
+          const fn = fnRef.current;
+          let action = trimmed === "BTN1" ? btn1 : trimmed === "BTN2" ? btn2 : null;
+          if (action === "simple_ticket") fn.simple();
+          else if (action === "normal_ticket") fn.normal();
+          else if (action === "priority_elderly") fn.prioE("elderly");
+          else if (action === "priority_disabled") fn.prioD("disabled");
+          else if (action === "priority_pregnant") fn.prioP("pregnant");
+        }
+      }
+    } catch (e) {
+      console.error("Serial read error:", e);
+    } finally {
+      setSerialConnected(false);
+      readerRef.current = null;
+      portRef.current = null;
+      localStorage.removeItem("kiosk-serial-authorized");
+    }
+  };
+
+  // Auto-connect to previously authorized serial port on mount
+  useEffect(() => {
+    if (!(navigator as any).serial) return;
+    const saved = localStorage.getItem("kiosk-serial-authorized");
+    if (!saved) return;
+    (async () => {
+      const ports = await (navigator as any).serial.getPorts();
+      if (ports?.length > 0) {
+        const port = ports[0];
+        await port.open({ baudRate: 9600 });
+        portRef.current = port;
+        const decoder = new TextDecoderStream();
+        port.readable.pipeTo(decoder.writable);
+        readerRef.current = decoder.readable.getReader();
+        setSerialConnected(true);
+        readSerialLoop();
+      } else {
+        localStorage.removeItem("kiosk-serial-authorized");
+      }
+    })();
+  }, []);
+
   // Full screen kiosk mode
   useEffect(() => {
     const handleFullscreen = () => {
@@ -234,6 +381,8 @@ export default function Kiosk() {
 
   // Single button ticket (no phone number required)
   const handleGetTicketSimple = async () => {
+    if (Date.now() < cooldownRef.current) return;
+    if (config && !(config as any)?.isSystemActive) return;
     if (systemNotInitialized || isLoading) return;
     setIsLoading(true);
     try {
@@ -241,6 +390,7 @@ export default function Kiosk() {
       setTicketNumber(result.ticketNumber);
       setShowSuccess(true);
       setCountdownSeconds(5);
+      setCooldown();
       emit("ticket:created", {
         ticketNumber: result.ticketNumber,
         entryId: result.entryId,
@@ -272,17 +422,38 @@ export default function Kiosk() {
           />
         </div>
 
+        {/* System Closed Overlay */}
+        {config && !(config as any)?.isSystemActive && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center backdrop-blur-md bg-black/50" style={{ animation: "fadeIn 0.5s ease-out" }}>
+            <div className="text-[12vw] md:text-[8vw] font-black text-red-500 leading-none" style={{ textShadow: "0 0 40px rgba(255,0,0,0.6), 0 0 80px rgba(255,0,0,0.3)", letterSpacing: "8px" }}>
+              SİSTEM KAPALI
+            </div>
+          </div>
+        )}
+
         {/* System Not Initialized Warning */}
         {systemNotInitialized && (
           <div className="absolute top-4 left-4 right-4 z-50 bg-red-900/80 border-2 border-red-500 rounded-lg p-4 text-center">
             <p className="text-red-200 font-semibold text-sm sm:text-base">
-              Warning: Sistem henuz baslatilmadi. Lutfen Admin Panelinden sistemi baslatn.
+              Uyarı: Sistem henüz başlatılmadı. Lütfen Admin Panelinden sistemi başlatın.
             </p>
           </div>
         )}
 
-        {/* Content */}
+          {/* Content */}
         <div className="relative z-10 flex flex-col items-center justify-center gap-6 sm:gap-8 md:gap-12 w-full">
+          {/* Serial status indicator */}
+          {!showSuccess && (
+            <div className="fixed bottom-4 right-4 z-50 text-[10px]">
+              {serialConnected ? (
+                <span className="text-green-500/40">SERIAL ✓</span>
+              ) : (navigator as any).serial && !localStorage.getItem("kiosk-serial-authorized") && (
+                <button onClick={connectSerial} className="text-foreground/20 hover:text-foreground/60 border border-foreground/20 px-2 py-1">
+                  SERIAL KUR
+                </button>
+              )}
+            </div>
+          )}
           {!showSuccess ? (
             <>
               {/* Title */}
@@ -300,14 +471,13 @@ export default function Kiosk() {
                   {/* Tek Buton: huge button, no phone input */}
                   <button
                     onClick={handleGetTicketSimple}
-                    disabled={isLoading}
-                    className="w-64 h-64 sm:w-72 sm:h-72 md:w-96 md:h-96 text-4xl sm:text-5xl md:text-7xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-4 sm:border-8 border-primary transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer touch-manipulation flex items-center justify-center"
+                    disabled={isLoading || ticketCooldown > 0}
+                     className="w-64 h-64 sm:w-72 sm:h-72 md:w-96 md:h-96 text-4xl sm:text-5xl md:text-7xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-4 sm:border-8 border-border transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer touch-manipulation flex items-center justify-center"
                     style={{
-                      textShadow: "0 0 20px currentColor, 0 0 40px currentColor, 0 0 60px currentColor",
                       animation: "neon-pulse 2s ease-in-out infinite",
                     }}
-                  >
-                    {isLoading ? "..." : "SIRA\nAL"}
+                   >
+                    {isLoading ? "..." : ticketCooldown > 0 ? `${ticketCooldown}` : "SIRA\nAL"}
                   </button>
                   <p className="text-lg sm:text-xl text-foreground/60 text-center max-w-md px-4">
                     Sıra almak için butona basınız veya klavyede herhangi bir tuşa basınız.
@@ -320,12 +490,12 @@ export default function Kiosk() {
                     <label className="block text-sm sm:text-base md:text-lg neon-blue mb-2 font-semibold text-center">
                       Telefon Numaranız
                     </label>
-                    <div className="w-full h-14 sm:h-16 md:h-20 px-4 text-2xl sm:text-3xl md:text-4xl font-bold border-3 sm:border-4 border-primary bg-background text-foreground flex items-center justify-center tracking-widest">
+                    <div className="w-full h-14 sm:h-16 md:h-20 px-4 text-2xl sm:text-3xl md:text-4xl font-bold border-3 sm:border-4 border-border bg-background text-foreground flex items-center justify-center tracking-widest">
                       {phoneNumber ? (
                         <span>{phoneNumber}</span>
                       ) : (
                         <span className="text-foreground/30 text-lg sm:text-xl">
-                          {kioskMode === "usb_keypad" ? "USB keypad ile numara giriniz" : "Numara giriniz"}
+                          {kioskMode === "usb_keypad" ? "USB tuş takımı ile numara giriniz" : "Numara giriniz"}
                         </span>
                       )}
                     </div>
@@ -363,7 +533,7 @@ export default function Kiosk() {
                   {/* USB Keypad hint */}
                   {kioskMode === "usb_keypad" && (
                     <p className="text-sm text-foreground/60 text-center mb-4">
-                      USB keypad ile numaranızı girip Enter'a basınız
+                      USB tuş takımı ile numaranızı girip onaylayınız
                     </p>
                   )}
 
@@ -371,7 +541,7 @@ export default function Kiosk() {
                   <div className="text-center mb-6 sm:mb-8 md:mb-12 max-w-2xl px-4">
                     <p className="text-xs sm:text-sm md:text-lg lg:text-xl text-foreground/80 mb-3 sm:mb-4">
                       {kioskMode === "usb_keypad"
-                        ? "Numaranızı USB keypad ile girin ve Enter'a basın"
+                        ? "Numaranızı USB tuş takımı ile girip onaylayın"
                         : "Lütfen telefon numaranızı girdikten sonra aşağıdaki butona basarak sıra numaranızı alınız"}
                     </p>
                     <div className="flex gap-2 sm:gap-3 md:gap-4 justify-center flex-wrap text-xs sm:text-sm">
@@ -384,14 +554,13 @@ export default function Kiosk() {
                   {/* Regular Ticket Button */}
                   <Button
                     onClick={handleGetTicket}
-                    disabled={isLoading}
-                    className="w-40 h-24 sm:w-48 sm:h-28 md:w-64 md:h-32 text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 sm:border-3 md:border-4 border-primary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
+                    disabled={isLoading || ticketCooldown > 0}
+                    className="w-40 h-24 sm:w-48 sm:h-28 md:w-64 md:h-32 text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black bg-primary hover:bg-primary/90 text-primary-foreground rounded-none border-2 sm:border-3 md:border-4 border-border transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
                     style={{
-                      textShadow: "0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor",
                       minHeight: "auto",
                     }}
                   >
-                    {isLoading ? "İŞLENİYOR..." : "SIRA AL"}
+                    {isLoading ? "İŞLENİYOR..." : ticketCooldown > 0 ? `${ticketCooldown}sn` : "SIRA AL"}
                   </Button>
 
                   {/* Priority Ticket Section */}
@@ -400,20 +569,20 @@ export default function Kiosk() {
                       ÖNCELİKLİ SIRA (Yaşlı, Engelli, Hamile)
                     </p>
                     <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-                      <Button onClick={() => handleGetPriorityTicket("elderly")} disabled={isLoading}
+                      <Button onClick={() => handleGetPriorityTicket("elderly")} disabled={isLoading || ticketCooldown > 0}
                         className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
-                        {isLoading ? "..." : "👴 YAŞLI"}
+                        style={{ minHeight: "auto" }}>
+                        {isLoading ? "..." : ticketCooldown > 0 ? `${ticketCooldown}sn` : "👴 YAŞLI"}
                       </Button>
-                      <Button onClick={() => handleGetPriorityTicket("disabled")} disabled={isLoading}
+                      <Button onClick={() => handleGetPriorityTicket("disabled")} disabled={isLoading || ticketCooldown > 0}
                         className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
-                        {isLoading ? "..." : "♿ ENGELLİ"}
+                        style={{ minHeight: "auto" }}>
+                        {isLoading ? "..." : ticketCooldown > 0 ? `${ticketCooldown}sn` : "♿ ENGELLİ"}
                       </Button>
-                      <Button onClick={() => handleGetPriorityTicket("pregnant")} disabled={isLoading}
+                      <Button onClick={() => handleGetPriorityTicket("pregnant")} disabled={isLoading || ticketCooldown > 0}
                         className="h-16 sm:h-20 md:h-24 text-xs sm:text-sm md:text-base lg:text-lg font-black bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-none border-2 sm:border-3 md:border-4 border-secondary transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 touch-manipulation"
-                        style={{ textShadow: "0 0 10px currentColor", minHeight: "auto" }}>
-                        {isLoading ? "..." : "🤰 HAMİLE"}
+                        style={{ minHeight: "auto" }}>
+                        {isLoading ? "..." : ticketCooldown > 0 ? `${ticketCooldown}sn` : "🤰 HAMİLE"}
                       </Button>
                     </div>
                   </div>
@@ -422,7 +591,7 @@ export default function Kiosk() {
 
               {/* Footer Info */}
               <div className="text-center text-xs sm:text-sm text-foreground/60 mt-6 sm:mt-8 md:mt-12">
-                <p>Sistem Durumu: <span className="text-green-400" style={{ textShadow: "0 0 10px currentColor" }}>● AKTIF</span></p>
+                <p>Sistem Durumu: <span className="text-green-400">● AKTIF</span></p>
               </div>
             </>
           ) : (
@@ -439,7 +608,6 @@ export default function Kiosk() {
                     className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black neon-pink mb-2 sm:mb-3 md:mb-4"
                     style={{
                       animation: "neon-pulse 1s ease-in-out infinite",
-                      textShadow: "0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor",
                     }}
                   >
                     {ticketNumber}
@@ -450,11 +618,11 @@ export default function Kiosk() {
                 </div>
 
                 {/* HUD Border Container */}
-                <div className="border-2 sm:border-3 md:border-4 border-primary p-4 sm:p-6 md:p-8 relative max-w-lg mx-auto">
-                  <div className="absolute top-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary" />
-                  <div className="absolute top-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary" />
-                  <div className="absolute bottom-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary" />
-                  <div className="absolute bottom-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary" />
+                <div className="border-2 sm:border-3 md:border-4 border-border p-4 sm:p-6 md:p-8 relative max-w-lg mx-auto">
+                  <div className="absolute top-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-border" />
+                  <div className="absolute top-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-t-2 sm:border-t-3 md:border-t-4 border-r-2 sm:border-r-3 md:border-r-4 border-border" />
+                  <div className="absolute bottom-0 left-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-l-2 sm:border-l-3 md:border-l-4 border-border" />
+                  <div className="absolute bottom-0 right-0 w-2 sm:w-3 md:w-4 h-2 sm:h-3 md:h-4 border-b-2 sm:border-b-3 md:border-b-4 border-r-2 sm:border-r-3 md:border-r-4 border-border" />
 
                   <p className="text-sm sm:text-base md:text-lg lg:text-xl text-foreground/80 mb-2 sm:mb-3 md:mb-4">
                     Lütfen bekleme salonunda bekleyiniz.
@@ -467,7 +635,7 @@ export default function Kiosk() {
                   {estimatedWaitTime && (
                     <div className="mb-4 sm:mb-5 md:mb-6 p-2 sm:p-3 md:p-4 border-2 sm:border-3 md:border-4 border-secondary">
                       <p className="text-xs sm:text-sm text-foreground/60 mb-1 sm:mb-2">TAHMİNİ BEKLEME SÜRESİ</p>
-                      <p className="text-2xl sm:text-3xl md:text-4xl font-black neon-blue" style={{ textShadow: "0 0 10px currentColor" }}>
+                      <p className="text-2xl sm:text-3xl md:text-4xl font-black neon-blue">
                         {estimatedWaitTime}
                       </p>
                     </div>
@@ -487,21 +655,19 @@ export default function Kiosk() {
         </div>
 
         {/* Corner Accents */}
-        <div className="absolute top-2 sm:top-3 md:top-4 left-2 sm:left-3 md:left-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-primary opacity-50" />
+        <div className="absolute top-2 sm:top-3 md:top-4 left-2 sm:left-3 md:left-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-t-2 sm:border-t-3 md:border-t-4 border-l-2 sm:border-l-3 md:border-l-4 border-border opacity-50" />
         <div className="absolute top-2 sm:top-3 md:top-4 right-2 sm:right-3 md:right-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-t-2 sm:border-t-3 md:border-t-4 border-r-2 sm:border-r-3 md:border-r-4 border-secondary opacity-50" />
         <div className="absolute bottom-2 sm:bottom-3 md:bottom-4 left-2 sm:left-3 md:left-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-b-2 sm:border-b-3 md:border-b-4 border-l-2 sm:border-l-3 md:border-l-4 border-secondary opacity-50" />
-        <div className="absolute bottom-2 sm:bottom-3 md:bottom-4 right-2 sm:right-3 md:right-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-b-2 sm:border-b-3 md:border-b-4 border-r-2 sm:border-r-3 md:border-r-4 border-primary opacity-50" />
+        <div className="absolute bottom-2 sm:bottom-3 md:bottom-4 right-2 sm:right-3 md:right-4 w-6 sm:w-8 md:w-12 h-6 sm:h-8 md:h-12 border-b-2 sm:border-b-3 md:border-b-4 border-r-2 sm:border-r-3 md:border-r-4 border-border opacity-50" />
       </div>
 
       <style>{`
         @keyframes neon-pulse {
           0%, 100% {
             opacity: 1;
-            text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor, 0 0 40px currentColor;
           }
           50% {
             opacity: 0.5;
-            text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
           }
         }
         

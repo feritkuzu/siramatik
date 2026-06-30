@@ -1,18 +1,27 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useSocket } from "@/hooks/useSocket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-
-const SUPERADMIN_PASSCODE = "1234";
+const themePresets: Record<string, { label: string; bg: string; text: string; header: string; subheader: string; border: string; font: string }> = {
+  cyber: { label: "Cyberpunk", bg: "#0a0a0a", text: "#00ff41", header: "#ff00ff", subheader: "#00ffff", border: "#ff00ff", font: "Courier New, monospace" },
+  ocean: { label: "Okyanus", bg: "#0d1b2a", text: "#e0e1dd", header: "#1b98a0", subheader: "#415a77", border: "#1b98a0", font: "Segoe UI, sans-serif" },
+  classic: { label: "Klasik", bg: "#1a1a2e", text: "#ffffff", header: "#e94560", subheader: "#16213e", border: "#e94560", font: "Arial, sans-serif" },
+  forest: { label: "Orman", bg: "#0a1f0a", text: "#d4edda", header: "#28a745", subheader: "#155724", border: "#28a745", font: "Georgia, serif" },
+  sunset: { label: "Günbatımı", bg: "#1a0a0a", text: "#ffe0d0", header: "#ff6b35", subheader: "#c73e1d", border: "#ff6b35", font: "Tahoma, sans-serif" },
+  midnight: { label: "Gece Mavisi", bg: "#000814", text: "#c0c8e0", header: "#003566", subheader: "#001233", border: "#ffc300", font: "Segoe UI, sans-serif" },
+  lavender: { label: "Lavanta", bg: "#1a0a2e", text: "#e5d9f2", header: "#9b5de5", subheader: "#7b2d8e", border: "#9b5de5", font: "Verdana, sans-serif" },
+};
 
 export default function AdminPanel() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(() => {
-    return sessionStorage.getItem("superadmin") === "true";
+    return !!sessionStorage.getItem("superadmin-token");
   });
   const [passcodeInput, setPasscodeInput] = useState("");
   const [passcodeError, setPasscodeError] = useState("");
+  const verifyPasscodeMutation = trpc.admin.verifyPasscode.useMutation();
   const [bankCount, setBankCount] = useState(2);
   const [labelSettings, setLabelSettings] = useState<any>({
     labelName: "Varsayılan Etiket",
@@ -31,19 +40,27 @@ export default function AdminPanel() {
 
   // Fetch system config
   const { data: config, refetch: refetchConfig } = trpc.admin.getConfig.useQuery(undefined, {
-    refetchInterval: 2000,
+    refetchInterval: 5000,
   });
 
   // Fetch all banks
   const { data: banks, refetch: refetchBanks } = trpc.bank.getAll.useQuery(undefined, {
-    refetchInterval: 2000,
+    refetchInterval: 5000,
   });
 
   // Fetch queue stats
-  const { data: stats, refetch: refetchStats } = trpc.queue.getStats.useQuery();
+  const { data: stats, refetch: refetchStats } = trpc.queue.getStats.useQuery(undefined, {
+    refetchInterval: 50000,
+  });
+
+  // Get connected banks (via socket)
+  const { data: connectedBankIds } = trpc.admin.getConnectedBanks.useQuery(undefined, {
+    refetchInterval: 5000,
+  });
 
   // Mutations
   const initSystemMutation = trpc.admin.initialize.useMutation();
+  const shutdownSystemMutation = trpc.admin.shutdown.useMutation();
   const updateBankCountMutation = trpc.admin.updateBankCount.useMutation();
   const toggleBankMutation = trpc.admin.toggleBankStatus.useMutation();
   const resetQueueMutation = trpc.admin.resetQueue.useMutation();
@@ -52,6 +69,7 @@ export default function AdminPanel() {
   const updateBankOperatorMutation = trpc.admin.updateBankOperator.useMutation();
   const deleteBankOperatorMutation = trpc.admin.deleteBankOperator.useMutation();
   const updateBankIpAddressMutation = trpc.admin.updateBankIpAddress.useMutation();
+  const updateBankMacAddressMutation = trpc.admin.updateBankMacAddress.useMutation();
   const updateSystemSettingsMutation = trpc.admin.updateSystemSettings.useMutation();
   const testPrinterMutation = trpc.admin.testPrinter.useMutation();
   const testWindowsPrinterMutation = trpc.admin.testWindowsPrinterEndpoint.useMutation();
@@ -72,7 +90,7 @@ export default function AdminPanel() {
   
   // Fetch bank operators
   const { data: operators, refetch: refetchOperators } = trpc.admin.getBankOperators.useQuery(undefined, {
-    refetchInterval: 2000,
+    refetchInterval: 5000,
   });
 
   // Operator management state
@@ -117,12 +135,26 @@ export default function AdminPanel() {
   const [businessHoursEnd, setBusinessHoursEnd] = useState("18:00");
   const [kioskMessage, setKioskMessage] = useState("");
   const [kioskMode, setKioskMode] = useState("touch");
+  const [serialBtn1Action, setSerialBtn1Action] = useState("simple_ticket");
+  const [serialBtn2Action, setSerialBtn2Action] = useState("priority_elderly");
+  const [themeBg, setThemeBg] = useState("#0d1b2a");
+  const [themeText, setThemeText] = useState("#e0e1dd");
+  const [themeHeader, setThemeHeader] = useState("#1b98a0");
+  const [themeSubheader, setThemeSubheader] = useState("#415a77");
+  const [themeFont, setThemeFont] = useState("Segoe UI, sans-serif");
+  const [themeBorder, setThemeBorder] = useState("#1b98a0");
+  const [weatherCity, setWeatherCity] = useState("");
+  const [announcements, setAnnouncements] = useState("");
+  const [tickerSpeed, setTickerSpeed] = useState(8);
+  const [tickerFontSize, setTickerFontSize] = useState(22);
+  const [workingDays, setWorkingDays] = useState("1,2,3,4,5");
 
   // Sound settings state
   const [soundSettings, setSoundSettings] = useState<any>({
     soundType: "chime",
     soundVolume: 70,
     isEnabled: true,
+    voiceEnabled: true,
     animationType: "pulse",
     animationSpeed: "normal",
   });
@@ -145,6 +177,19 @@ export default function AdminPanel() {
       setBusinessHoursEnd(config.businessHoursEnd || "18:00");
       setKioskMessage(config.kioskMessage || "");
       setKioskMode(config.kioskMode || "touch");
+      setSerialBtn1Action(config.serialBtn1Action || "simple_ticket");
+      setSerialBtn2Action(config.serialBtn2Action || "priority_elderly");
+      setThemeBg(config.themeBg || "#0d1b2a");
+      setThemeText(config.themeText || "#e0e1dd");
+      setThemeHeader(config.themeHeader || "#1b98a0");
+      setThemeSubheader(config.themeSubheader || "#415a77");
+      setThemeFont(config.themeFont || "Segoe UI, sans-serif");
+      setThemeBorder(config.themeBorder || "#1b98a0");
+      setWeatherCity(config.weatherCity || "");
+      setAnnouncements(config.announcements || "");
+      setTickerSpeed(config.tickerSpeed ?? 8);
+      setTickerFontSize(config.tickerFontSize ?? 22);
+      setWorkingDays(config.workingDays || "1,2,3,4,5");
     }
   }, [config]);
 
@@ -211,24 +256,34 @@ export default function AdminPanel() {
     }
   };
 
+  const handleShutdownSystem = async () => {
+    try {
+      await shutdownSystemMutation.mutateAsync();
+      await refetchConfig();
+      toast.success("✓ Sistem kapatıldı");
+    } catch (error) {
+      console.error("Failed to shut down system:", error);
+      toast.error("✗ Sistem kapatılamadı");
+    }
+  };
+
   const handleSavePrinter = async () => {
     if (!selectedPrinter) {
-      alert("Lütfen bir yazıcı seçin");
+      toast.error("Lütfen bir yazıcı seçin");
       return;
     }
     try {
       await updatePrinterSettingsMutation.mutateAsync({ windowsPrinterName: selectedPrinter });
-      console.log("Yazıcı kaydedildi:", selectedPrinter);
-      alert(`Yazıcı kaydedildi: ${selectedPrinter}`);
+      toast.success(`Yazıcı kaydedildi: ${selectedPrinter}`);
     } catch (error) {
-      console.error("Failed to save printer:", error);
-      alert("Yazıcı kaydedilemedi");
+      toast.error("Yazıcı kaydedilemedi");
     }
   };
 
-  const handleSuperAdminLogin = () => {
-    if (passcodeInput === SUPERADMIN_PASSCODE) {
-      sessionStorage.setItem("superadmin", "true");
+  const handleSuperAdminLogin = async () => {
+    const result = await verifyPasscodeMutation.mutateAsync({ passcode: passcodeInput });
+    if (result.success && result.token) {
+      sessionStorage.setItem("superadmin-token", result.token);
       setIsSuperAdmin(true);
       setPasscodeInput("");
       setPasscodeError("");
@@ -238,7 +293,7 @@ export default function AdminPanel() {
   };
 
   const handleSuperAdminLogout = () => {
-    sessionStorage.removeItem("superadmin");
+    sessionStorage.removeItem("superadmin-token");
     setIsSuperAdmin(false);
     setPasscodeInput("");
     setPasscodeError("");
@@ -252,6 +307,9 @@ export default function AdminPanel() {
             ADMİN PANELİ
           </h1>
           <div className="flex items-center gap-4">
+            <button onClick={() => window.open("/reports", "_blank")} className="h-10 px-4 font-black text-xs bg-purple-600 hover:bg-purple-700 text-white border-4 border-purple-600 cursor-pointer">
+              RAPORLAR
+            </button>
             {isSuperAdmin ? (
               <div className="flex items-center gap-3 border-4 border-yellow-400 p-3">
                 <span className="text-yellow-400 font-black text-sm" style={{ textShadow: "0 0 10px currentColor" }}>● SÜPERADMİN</span>
@@ -301,10 +359,17 @@ export default function AdminPanel() {
               />
               <Button
                 onClick={handleInitSystem}
-                disabled={initSystemMutation.isPending}
+                disabled={initSystemMutation.isPending || config?.isSystemActive}
                 className="w-full h-12 font-black bg-primary hover:bg-primary/90 text-primary-foreground border-4 border-primary neon-glow"
               >
                 {initSystemMutation.isPending ? "BAŞLATILIYOR..." : "SİSTEMİ BAŞLAT"}
+              </Button>
+              <Button
+                onClick={handleShutdownSystem}
+                disabled={shutdownSystemMutation.isPending || !config?.isSystemActive}
+                className="w-full h-12 font-black bg-red-600 hover:bg-red-700 text-white border-4 border-red-600 mt-2"
+              >
+                {shutdownSystemMutation.isPending ? "KAPATILIYOR..." : "SİSTEMİ KAPAT"}
               </Button>
             </div>
 
@@ -336,6 +401,7 @@ export default function AdminPanel() {
               <div className="space-y-2">
                 <p className="text-sm text-foreground/60">Aktif: {config?.isSystemActive ? "✓ EVET" : "✗ HAYIR"}</p>
                 <p className="text-sm text-foreground/60">Banko Sayısı: {config?.totalBanks || 0}</p>
+                <p className="text-sm text-foreground/60">Aktif Banko: <span className={connectedBankIds?.length ? "text-green-400" : "text-red-400"}>{connectedBankIds?.length || 0}</span></p>
                 <p className="text-sm text-foreground/60">Sıra No: {config?.currentQueueNumber || 0}</p>
               </div>
             </div>
@@ -377,6 +443,128 @@ export default function AdminPanel() {
                 <label className="block text-sm font-bold mb-1 text-foreground/80">Kiosk Mesajı</label>
                 <input type="text" value={kioskMessage} onChange={(e) => setKioskMessage(e.target.value)} placeholder="Kiosk ekranında gösterilecek mesaj" maxLength={100} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
               </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Seri BTN1 Aksiyonu</label>
+                <select value={serialBtn1Action} onChange={(e) => setSerialBtn1Action(e.target.value)} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-1">
+                  <option value="simple_ticket">Basit Sıra</option>
+                  <option value="priority_elderly">Öncelikli - Yaşlı</option>
+                  <option value="priority_disabled">Öncelikli - Engelli</option>
+                  <option value="priority_pregnant">Öncelikli - Hamile</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Seri BTN2 Aksiyonu</label>
+                <select value={serialBtn2Action} onChange={(e) => setSerialBtn2Action(e.target.value)} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-1">
+                  <option value="simple_ticket">Basit Sıra</option>
+                  <option value="priority_elderly">Öncelikli - Yaşlı</option>
+                  <option value="priority_disabled">Öncelikli - Engelli</option>
+                  <option value="priority_pregnant">Öncelikli - Hamile</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Hava Durumu Şehir</label>
+                <input type="text" value={weatherCity} onChange={(e) => setWeatherCity(e.target.value)} placeholder="Örn: Istanbul" className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
+              </div>
+            </div>
+
+            {/* Theme Settings */}
+            <h3 className="text-lg font-black neon-purple mt-6 mb-4" style={{ textShadow: "0 0 10px currentColor" }}>TEMA AYARLARI</h3>
+
+            {/* Theme Preset Selector */}
+            <div className="mb-6">
+              <label className="block text-sm font-bold mb-2 text-foreground/80">Hazır Tema Seç</label>
+              <select
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "custom") return;
+                  const preset = themePresets[val];
+                  if (preset) {
+                    setThemeBg(preset.bg);
+                    setThemeText(preset.text);
+                    setThemeHeader(preset.header);
+                    setThemeSubheader(preset.subheader);
+                    setThemeBorder(preset.border);
+                    setThemeFont(preset.font);
+                  }
+                }}
+                className="w-full h-12 border-4 border-secondary bg-card text-foreground font-black text-lg p-2"
+              >
+                <option value="custom">Kullanıcı Teması (Özel)</option>
+                {Object.entries(themePresets).map(([key, p]) => (
+                  <option key={key} value={key}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Arka Plan Rengi</label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={themeBg} onChange={(e) => setThemeBg(e.target.value)} className="w-10 h-10 border-2 border-primary cursor-pointer" />
+                  <input type="text" value={themeBg} onChange={(e) => setThemeBg(e.target.value)} maxLength={20} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-mono text-sm p-2" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Yazı Rengi</label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={themeText} onChange={(e) => setThemeText(e.target.value)} className="w-10 h-10 border-2 border-primary cursor-pointer" />
+                  <input type="text" value={themeText} onChange={(e) => setThemeText(e.target.value)} maxLength={20} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-mono text-sm p-2" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Başlık Rengi</label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={themeHeader} onChange={(e) => setThemeHeader(e.target.value)} className="w-10 h-10 border-2 border-primary cursor-pointer" />
+                  <input type="text" value={themeHeader} onChange={(e) => setThemeHeader(e.target.value)} maxLength={20} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-mono text-sm p-2" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Alt Başlık Rengi</label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={themeSubheader} onChange={(e) => setThemeSubheader(e.target.value)} className="w-10 h-10 border-2 border-primary cursor-pointer" />
+                  <input type="text" value={themeSubheader} onChange={(e) => setThemeSubheader(e.target.value)} maxLength={20} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-mono text-sm p-2" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Kenarlık Rengi</label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={themeBorder} onChange={(e) => setThemeBorder(e.target.value)} className="w-10 h-10 border-2 border-primary cursor-pointer" />
+                  <input type="text" value={themeBorder} onChange={(e) => setThemeBorder(e.target.value)} maxLength={20} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-mono text-sm p-2" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Yazı Tipi</label>
+                <select value={themeFont} onChange={(e) => setThemeFont(e.target.value)} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-1">
+                  <option value="Segoe UI, sans-serif">Segoe UI</option>
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="Courier New, monospace">Courier New</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="Impact, sans-serif">Impact</option>
+                  <option value="Tahoma, sans-serif">Tahoma</option>
+                  <option value="Trebuchet MS, sans-serif">Trebuchet MS</option>
+                  <option value="Verdana, sans-serif">Verdana</option>
+                </select>
+              </div>
+            </div>
+            {/* Kiosk / Ticker Settings */}
+            <h3 className="text-lg font-black neon-purple mt-6 mb-4" style={{ textShadow: "0 0 10px currentColor" }}>KİOSK & TİCKER AYARLARI</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Ticker Hızı (sn)</label>
+                <input type="number" value={tickerSpeed} onChange={(e) => setTickerSpeed(parseInt(e.target.value) || 8)} min={3} max={30} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Ticker Font Boyutu</label>
+                <input type="number" value={tickerFontSize} onChange={(e) => setTickerFontSize(parseInt(e.target.value) || 22)} min={12} max={60} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Çalışma Günleri (1-7)</label>
+                <input type="text" value={workingDays} onChange={(e) => setWorkingDays(e.target.value)} placeholder="1,2,3,4,5" className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
+              </div>
+              <div className="md:col-span-3">
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Duyuru Metni (ticker)</label>
+                <textarea value={announcements} onChange={(e) => setAnnouncements(e.target.value)} placeholder="Kayan duyuru metni..." maxLength={2000} rows={3} className="w-full border-2 border-primary bg-card text-foreground font-black text-sm p-2" />
+              </div>
             </div>
             <Button
               onClick={async () => {
@@ -388,8 +576,21 @@ export default function AdminPanel() {
                   businessHoursEnd,
                   kioskMessage,
                   kioskMode,
+                  serialBtn1Action,
+                  serialBtn2Action,
+                  themeBg,
+                  themeText,
+                  themeHeader,
+                  themeSubheader,
+                  themeFont,
+                  themeBorder,
+                  weatherCity,
+                  announcements,
+                  tickerSpeed,
+                  tickerFontSize,
+                  workingDays,
                 });
-                alert("✓ Sistem ayarları kaydedildi");
+                toast.success("✓ Sistem ayarları kaydedildi");
               }}
               disabled={updateSystemSettingsMutation.isPending}
               className="mt-4 h-12 px-6 font-black bg-yellow-600 hover:bg-yellow-700 text-white border-4 border-yellow-600"
@@ -398,18 +599,28 @@ export default function AdminPanel() {
             </Button>
           </div>
 
-          {/* Bank IP Configuration (Superadmin) */}
+          {/* Bank IP & MAC Configuration (Superadmin) */}
           <div className="border-4 border-yellow-400 p-6 mt-6">
-            <h3 className="text-lg font-black neon-blue mb-4" style={{ textShadow: "0 0 10px currentColor" }}>BANKO IP ADRESLERİ</h3>
-            <p className="text-xs text-foreground/60 mb-4">Her bankonun bilgisayar IP adresini girin. O IP'den bağlanan banko paneli otomatik olarak bankoyu tanıyacaktır.</p>
+            <h3 className="text-lg font-black neon-blue mb-4" style={{ textShadow: "0 0 10px currentColor" }}>BANKO IP & MAC ADRESLERİ</h3>
+            <p className="text-xs text-foreground/60 mb-4">Her bankonun bilgisayar IP ve MAC adresini girin. Öncelikle MAC adresi ile eşleşme yapılır, bulunamazsa IP ile eşleşme denenir.</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {banks && banks.map((bank: any) => (
                 <div key={bank.id} className="border-2 border-secondary p-3">
                   <p className="text-sm font-black mb-2">BANKO {bank.bankNumber}</p>
-                  <div className="flex gap-1">
+                  <div className="flex flex-col gap-1">
                     <input
                       type="text"
-                      placeholder="192.168.1.100"
+                      placeholder="MAC (örn: AA:BB:CC:DD:EE:FF)"
+                      defaultValue={bank.macAddress || ""}
+                      onBlur={async (e) => {
+                        const mac = e.target.value.trim();
+                        await updateBankMacAddressMutation.mutateAsync({ bankId: bank.id, macAddress: mac });
+                      }}
+                      className="w-full h-8 border-2 border-primary bg-card text-foreground font-mono text-xs p-1"
+                    />
+                    <input
+                      type="text"
+                      placeholder="IP (örn: 192.168.1.100)"
                       defaultValue={bank.ipAddress || ""}
                       onBlur={async (e) => {
                         const ip = e.target.value.trim();
@@ -705,16 +916,14 @@ export default function AdminPanel() {
                       console.log('[AdminPanel] Test printer clicked:', selectedPrinter);
                       testWindowsPrinterMutation.mutate({ printerName: selectedPrinter }, {
                       onSuccess: (result) => {
-                        console.log('[AdminPanel] Test printer success:', result);
-                        alert(`✓ ${result.message}`);
+                        toast.success(`✓ ${result.message}`);
                       },
-                      onError: (error) => {
-                        console.error('[AdminPanel] Test printer error:', error);
-                        alert(`✗ Yazıcı testi başarısız`);
+                      onError: () => {
+                        toast.error(`✗ Yazıcı testi başarısız`);
                       }
                       });
                     } else {
-                      alert("Lütfen bir yazıcı seçin");
+                      toast.error("Lütfen bir yazıcı seçin");
                     }
                   }}
                   disabled={testWindowsPrinterMutation.isPending}
@@ -759,9 +968,9 @@ export default function AdminPanel() {
                     try {
                       await createLabelMutation.mutateAsync({ labelName: name });
                       await refetchLabels();
-                      alert("✓ Yeni etiket oluşturuldu");
-                    } catch (e) {
-                      alert("✗ Oluşturulamadı");
+                      toast.success("✓ Yeni etiket oluşturuldu");
+                    } catch {
+                      toast.error("✗ Oluşturulamadı");
                     }
                   }}
                   className="h-12 font-black bg-green-600 hover:bg-green-700 text-white border-4 border-green-600"
@@ -778,9 +987,9 @@ export default function AdminPanel() {
                     try {
                       await setDefaultLabelMutation.mutateAsync({ labelId: selectedLabelId });
                       await refetchLabels();
-                      alert("✓ Varsayılan etiket güncellendi");
-                    } catch (e) {
-                      alert("✗ Güncellenemedi");
+                      toast.success("✓ Varsayılan etiket güncellendi");
+                    } catch {
+                      toast.error("✗ Güncellenemedi");
                     }
                   }}
                   disabled={!selectedLabelId || (allLabels || []).find((l: any) => l.id === selectedLabelId)?.isActive}
@@ -793,7 +1002,7 @@ export default function AdminPanel() {
                     if (!selectedLabelId) return;
                     const label = (allLabels || []).find((l: any) => l.id === selectedLabelId);
                     if (label?.isActive) {
-                      alert("Varsayılan etiket silinemez. Önce başka bir etiketi varsayılan yapın.");
+                      toast.error("Varsayılan etiket silinemez. Önce başka bir etiketi varsayılan yapın.");
                       return;
                     }
                     if (!confirm("Bu etiketi silmek istediğinize emin misiniz?")) return;
@@ -801,9 +1010,9 @@ export default function AdminPanel() {
                       await deleteLabelMutation.mutateAsync({ labelId: selectedLabelId });
                       await refetchLabels();
                       setSelectedLabelId((allLabels || []).find((l: any) => l.id !== selectedLabelId)?.id || 1);
-                      alert("✓ Silindi");
-                    } catch (e) {
-                      alert("✗ Silinemedi");
+                      toast.success("✓ Silindi");
+                    } catch {
+                      toast.error("✗ Silinemedi");
                     }
                   }}
                   disabled={!selectedLabelId}
@@ -953,13 +1162,13 @@ export default function AdminPanel() {
                       ...labelSettings,
                     },
                     {
-                      onSuccess: (result) => {
-                        alert('✓ Etiket tasarımı kaydedildi');
+                      onSuccess: () => {
+                        toast.success('✓ Etiket tasarımı kaydedildi');
                         refetchLabels();
                       },
                       onError: (error) => {
                         const errorMsg = error instanceof Error ? error.message : String(error);
-                        alert('✗ Etiket tasarımı kaydedilemedi: ' + errorMsg);
+                        toast.error('✗ Etiket tasarımı kaydedilemedi: ' + errorMsg);
                       },
                     }
                   );
@@ -1022,14 +1231,14 @@ export default function AdminPanel() {
               <Button
                 onClick={() => {
                   if (!selectedPrinter) {
-                    alert("Lütfen önce Yazıcı Ayarları bölümünden bir yazıcı seçin");
+                    toast.error("Lütfen önce Yazıcı Ayarları bölümünden bir yazıcı seçin");
                     return;
                   }
                   testWindowsPrinterMutation.mutate(
                     { printerName: selectedPrinter, labelSettings },
                     {
-                      onSuccess: (result) => alert(result.message || '✓ Test yazdırması gönderildi'),
-                      onError: (err) => alert('✗ Test başarısız: ' + (err instanceof Error ? err.message : String(err))),
+                      onSuccess: (result) => toast.success(result.message || '✓ Test yazdırması gönderildi'),
+                      onError: (err) => toast.error('✗ Test başarısız: ' + (err instanceof Error ? err.message : String(err))),
                     }
                   );
                 }}

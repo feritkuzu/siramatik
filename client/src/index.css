@@ -1,5 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
+
+@font-face {
+  font-family: 'LED Counter 7';
+  src: url('/fonts/led-counter-7.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'LED Counter 7';
+  src: url('/fonts/led-counter-7_italic.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -67,7 +82,7 @@
   --accent-foreground: oklch(0.05 0 0);
   --destructive: oklch(0.6 0.25 25);
   --destructive-foreground: oklch(0.95 0 0);
-  --border: oklch(0.2 0.1 310);
+  --border: #1b98a0;
   --input: oklch(0.1 0.05 310);
   --ring: oklch(0.7 0.3 310);
   --sidebar: oklch(0.08 0.01 310);
@@ -140,18 +155,15 @@
   }
 
   .neon-pink {
-    color: #ff006e;
-    text-shadow: 0 0 10px #ff006e, 0 0 20px #ff006e, 0 0 30px #ff006e, 0 0 40px #ff006e;
+    color: var(--primary, #ff006e);
   }
 
   .neon-blue {
-    color: #00d9ff;
-    text-shadow: 0 0 10px #00d9ff, 0 0 20px #00d9ff, 0 0 30px #00d9ff, 0 0 40px #00d9ff;
+    color: var(--secondary, #00d9ff);
   }
 
   .neon-purple {
     color: #b537f2;
-    text-shadow: 0 0 10px #b537f2, 0 0 20px #b537f2, 0 0 30px #b537f2, 0 0 40px #b537f2;
   }
 
   /* HUD Border Effect */

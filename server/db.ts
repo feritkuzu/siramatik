@@ -73,6 +73,7 @@ async function initializeSchema(): Promise<void> {
         sound_type TEXT DEFAULT 'chime' NOT NULL,
         sound_volume INTEGER DEFAULT 70 NOT NULL,
         is_enabled INTEGER DEFAULT 1 NOT NULL,
+        voice_enabled INTEGER DEFAULT 1 NOT NULL,
         animation_type TEXT DEFAULT 'pulse' NOT NULL,
         animation_speed TEXT DEFAULT 'normal' NOT NULL,
         custom_sound_url TEXT,
@@ -83,7 +84,7 @@ async function initializeSchema(): Promise<void> {
         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
         total_banks INTEGER DEFAULT 5 NOT NULL,
         current_queue_number INTEGER DEFAULT 0 NOT NULL,
-        is_system_active INTEGER DEFAULT 1 NOT NULL,
+        is_system_active INTEGER DEFAULT 0 NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )`,
@@ -197,6 +198,22 @@ async function initializeSchema(): Promise<void> {
       console.error("[Database] Failed to initialize default label settings:", e);
     }
     
+    // Auto-create system config row with is_system_active = 0 (system kapali)
+    try {
+      const existingConfig = executeQuery("SELECT * FROM system_config WHERE id = 1");
+      if (existingConfig.length === 0) {
+        const now = Date.now();
+        executeUpdate(
+          `INSERT INTO system_config (id, total_banks, current_queue_number, is_system_active, created_at, updated_at)
+           VALUES (1, 5, 0, 0, ?, ?)`,
+          [now, now]
+        );
+        console.log("[Database] Default system config created (system kapali)");
+      }
+    } catch (e) {
+      console.error("[Database] Failed to create default system config:", e);
+    }
+
     console.log("[Database] Schema initialized");
   } catch (error) {
     console.error("[Database] Failed to initialize schema:", error);
@@ -241,6 +258,17 @@ async function runMigrations(): Promise<void> {
         console.log("[Database] Added ip_address column to banks");
       } catch (e) {
         console.error("[Database] Failed to add ip_address column:", e);
+      }
+    }
+    // Add mac_address column to banks if not exists
+    const hasMacCol = colInfo3.some((c: any) => c.name === "mac_address");
+    if (!hasMacCol) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE banks ADD COLUMN mac_address TEXT");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added mac_address column to banks");
+      } catch (e) {
+        console.error("[Database] Failed to add mac_address column:", e);
       }
     }
 
@@ -298,22 +326,187 @@ async function runMigrations(): Promise<void> {
       } catch (e) { console.error("[Database] Failed to add kiosk_mode:", e); }
     }
 
+    if (!sysColNames.includes("weather_city")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN weather_city TEXT DEFAULT ''");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added weather_city column");
+      } catch (e) { console.error("[Database] Failed to add weather_city:", e); }
+    }
+
+    // Theme columns
+    if (!sysColNames.includes("theme_bg")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_bg TEXT DEFAULT '#000000'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_bg column");
+      } catch (e) { console.error("[Database] Failed to add theme_bg:", e); }
+    }
+    if (!sysColNames.includes("theme_text")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_text TEXT DEFAULT '#ffffff'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_text column");
+      } catch (e) { console.error("[Database] Failed to add theme_text:", e); }
+    }
+    if (!sysColNames.includes("theme_header")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_header TEXT DEFAULT '#ff006e'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_header column");
+      } catch (e) { console.error("[Database] Failed to add theme_header:", e); }
+    }
+    if (!sysColNames.includes("theme_subheader")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_subheader TEXT DEFAULT '#00d9ff'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_subheader column");
+      } catch (e) { console.error("[Database] Failed to add theme_subheader:", e); }
+    }
+    if (!sysColNames.includes("theme_font")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_font TEXT DEFAULT 'Courier New, monospace'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_font column");
+      } catch (e) { console.error("[Database] Failed to add theme_font:", e); }
+    }
+    if (!sysColNames.includes("theme_border")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_border TEXT DEFAULT '#1b98a0'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_border column");
+      } catch (e) { console.error("[Database] Failed to add theme_border:", e); }
+    }
+    if (!sysColNames.includes("announcements")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN announcements TEXT DEFAULT ''");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added announcements column");
+      } catch (e) { console.error("[Database] Failed to add announcements:", e); }
+    }
+    if (!sysColNames.includes("ticker_speed")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN ticker_speed INTEGER DEFAULT 8");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added ticker_speed column");
+      } catch (e) { console.error("[Database] Failed to add ticker_speed:", e); }
+    }
+    if (!sysColNames.includes("ticker_font_size")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN ticker_font_size INTEGER DEFAULT 22");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added ticker_font_size column");
+      } catch (e) { console.error("[Database] Failed to add ticker_font_size:", e); }
+    }
+    if (!sysColNames.includes("working_days")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN working_days TEXT DEFAULT '1,2,3,4,5'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added working_days column");
+      } catch (e) { console.error("[Database] Failed to add working_days:", e); }
+    }
+    if (!sysColNames.includes("serial_btn1_action")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN serial_btn1_action TEXT DEFAULT 'simple_ticket'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added serial_btn1_action column");
+      } catch (e) { console.error("[Database] Failed to add serial_btn1_action:", e); }
+    }
+    if (!sysColNames.includes("serial_btn2_action")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN serial_btn2_action TEXT DEFAULT 'priority_elderly'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added serial_btn2_action column");
+      } catch (e) { console.error("[Database] Failed to add serial_btn2_action:", e); }
+    }
+    if (!sysColNames.includes("superadmin_passcode")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN superadmin_passcode TEXT DEFAULT '1234'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added superadmin_passcode column");
+      } catch (e) { console.error("[Database] Failed to add superadmin_passcode:", e); }
+    }
+    if (!sysColNames.includes("queue_date")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN queue_date TEXT DEFAULT ''");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added queue_date column");
+      } catch (e) { console.error("[Database] Failed to add queue_date:", e); }
+    }
+
+    // Add bank_id and operator_id columns to queue_entries if not exists
+    const qeCols = executeQuery("PRAGMA table_info(queue_entries)");
+    const qeColNames = qeCols.map((c: any) => c.name);
+    if (!qeColNames.includes("bank_id")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE queue_entries ADD COLUMN bank_id INTEGER");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added bank_id column to queue_entries");
+      } catch (e) { console.error("[Database] Failed to add bank_id:", e); }
+    }
+    if (!qeColNames.includes("operator_id")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE queue_entries ADD COLUMN operator_id INTEGER");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added operator_id column to queue_entries");
+      } catch (e) { console.error("[Database] Failed to add operator_id:", e); }
+    }
+
+    // Add indexes for queue_entries performance
+    const idxCols = executeQuery("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='queue_entries'").map((r: any) => r.name);
+    if (!idxCols.includes("idx_queue_status")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_entries(status)"); console.log("[Database] Added idx_queue_status"); } catch (e: any) { console.error("[Database] Failed idx_queue_status:", e); }
+    }
+    if (!idxCols.includes("idx_queue_created")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_created ON queue_entries(created_at)"); console.log("[Database] Added idx_queue_created"); } catch (e: any) { console.error("[Database] Failed idx_queue_created:", e); }
+    }
+    if (!idxCols.includes("idx_queue_completed")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_completed ON queue_entries(completed_at)"); console.log("[Database] Added idx_queue_completed"); } catch (e: any) { console.error("[Database] Failed idx_queue_completed:", e); }
+    }
+    if (!idxCols.includes("idx_queue_bank")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_bank ON queue_entries(bank_id)"); console.log("[Database] Added idx_queue_bank"); } catch (e: any) { console.error("[Database] Failed idx_queue_bank:", e); }
+    }
+    if (!idxCols.includes("idx_queue_operator")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_operator ON queue_entries(operator_id)"); console.log("[Database] Added idx_queue_operator"); } catch (e: any) { console.error("[Database] Failed idx_queue_operator:", e); }
+    }
+    if (!idxCols.includes("idx_queue_priority")) {
+      try { executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_priority ON queue_entries(is_priority)"); console.log("[Database] Added idx_queue_priority"); } catch (e: any) { console.error("[Database] Failed idx_queue_priority:", e); }
+    }
+
+    // Add voice_enabled to sound_settings
+    try {
+      const ssCols = executeQuery("PRAGMA table_info(sound_settings)");
+      if (!ssCols.some((c: any) => c.name === "voice_enabled")) {
+        const stmt = _db.prepare("ALTER TABLE sound_settings ADD COLUMN voice_enabled INTEGER DEFAULT 1");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added voice_enabled column to sound_settings");
+      }
+    } catch (e) { console.error("[Database] Failed to add voice_enabled:", e); }
+
     saveDb();
   } catch (error) {
     console.error("[Database] Migration error:", error);
   }
 }
 
-// Save database to disk
+// Save database to disk (throttled: max once per second)
+let saveTimeout: any = null;
+let savePending = false;
 export function saveDb() {
   if (!_db) return;
-  try {
-    const data = _db.export();
-    const buffer = Buffer.from(data);
-    writeFileSync(DB_PATH, buffer);
-  } catch (error) {
-    console.error("[Database] Failed to save:", error);
-  }
+  if (savePending) return;
+  savePending = true;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      const data = _db.export();
+      const buffer = Buffer.from(data);
+      writeFileSync(DB_PATH, buffer);
+    } catch (error) {
+      console.error("[Database] Failed to save:", error);
+    }
+    savePending = false;
+  }, 1000);
 }
 
 // Execute SQL query
@@ -371,7 +564,16 @@ export async function incrementQueueNumber(): Promise<number> {
       config = await getSystemConfig();
     }
     
-    const newNumber = (config?.currentQueueNumber || 0) + 1;
+    const today = new Date().toISOString().slice(0, 10);
+    const lastDate = config?.queueDate || "";
+    let baseNumber: number;
+    if (lastDate !== today) {
+      baseNumber = 0;
+      executeUpdate("UPDATE system_config SET queue_date = ? WHERE id = 1", [today]);
+    } else {
+      baseNumber = config?.currentQueueNumber || 0;
+    }
+    const newNumber = baseNumber + 1;
     executeUpdate("UPDATE system_config SET current_queue_number = ? WHERE id = 1", [newNumber]);
     return newNumber;
   } catch (error) {
@@ -416,11 +618,25 @@ export async function createQueueEntry(ticketNumber: number, priorityType: strin
 export async function getWaitingQueue(): Promise<QueueEntry[]> {
   try {
     const rows = executeQuery(
-      "SELECT * FROM queue_entries WHERE status = 'waiting' ORDER BY created_at ASC"
+      "SELECT * FROM queue_entries WHERE status = 'waiting' ORDER BY is_priority DESC, created_at ASC"
     );
     return rows.map(mapQueueEntry) as QueueEntry[];
   } catch (error) {
     console.error("[Database] Failed to get waiting queue:", error);
+    return [];
+  }
+}
+
+export async function getActiveCalledEntries(): Promise<any[]> {
+  try {
+    const rows = executeQuery(
+      `SELECT * FROM queue_entries
+       WHERE status IN ('called', 'received', 'serving') AND bank_id IS NOT NULL
+       ORDER BY called_at DESC`
+    );
+    return rows.map(mapQueueEntry);
+  } catch (error) {
+    console.error("[Database] Failed to get active called entries:", error);
     return [];
   }
 }
@@ -434,6 +650,8 @@ function mapQueueEntry(row: any): any {
     priorityType: row.priority_type,
     isPriority: row.is_priority === 1,
     status: row.status,
+    bankId: row.bank_id,
+    operatorId: row.operator_id,
     calledAt: row.called_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -446,7 +664,7 @@ function mapQueueEntry(row: any): any {
 export async function getNextWaitingEntry(): Promise<QueueEntry | null> {
   try {
     const result = executeQuery(
-      "SELECT * FROM queue_entries WHERE status = 'waiting' ORDER BY created_at ASC LIMIT 1"
+      "SELECT * FROM queue_entries WHERE status = 'waiting' ORDER BY is_priority DESC, created_at ASC LIMIT 1"
     );
     return result[0] ? (mapQueueEntry(result[0]) as QueueEntry) : null;
   } catch (error) {
@@ -465,7 +683,7 @@ export async function getQueueEntryById(entryId: number): Promise<any | null> {
   }
 }
 
-export async function callNextCustomer(bankId: number): Promise<any | null> {
+export async function callNextCustomer(bankId: number, operatorId?: number): Promise<any | null> {
   try {
     const db = await getDb();
     if (!db) return null;
@@ -474,10 +692,15 @@ export async function callNextCustomer(bankId: number): Promise<any | null> {
     if (!entry) return null;
 
     const now = Date.now();
+    let opId = operatorId;
+    if (!opId) {
+      const bank = await getBankById(bankId);
+      if (bank) opId = (bank as any).assignedOperatorId;
+    }
 
     executeUpdate(
-      "UPDATE queue_entries SET status = 'called', called_at = ?, updated_at = ? WHERE id = ?",
-      [now, now, entry.id]
+      "UPDATE queue_entries SET status = 'called', called_at = ?, updated_at = ?, bank_id = ?, operator_id = ? WHERE id = ?",
+      [now, now, bankId, opId, entry.id]
     );
 
     executeUpdate(
@@ -498,7 +721,7 @@ export async function callNextCustomer(bankId: number): Promise<any | null> {
   }
 }
 
-export async function callSpecificEntry(bankId: number, entryId: number): Promise<any | null> {
+export async function callSpecificEntry(bankId: number, entryId: number, operatorId?: number): Promise<any | null> {
   try {
     const db = await getDb();
     if (!db) return null;
@@ -507,10 +730,15 @@ export async function callSpecificEntry(bankId: number, entryId: number): Promis
     if (!entry || entry.status !== 'waiting') return null;
 
     const now = Date.now();
+    let opId = operatorId;
+    if (!opId) {
+      const bank = await getBankById(bankId);
+      if (bank) opId = (bank as any).assignedOperatorId;
+    }
 
     executeUpdate(
-      "UPDATE queue_entries SET status = 'called', called_at = ?, updated_at = ? WHERE id = ?",
-      [now, now, entryId]
+      "UPDATE queue_entries SET status = 'called', called_at = ?, updated_at = ?, bank_id = ?, operator_id = ? WHERE id = ?",
+      [now, now, bankId, opId, entryId]
     );
 
     executeUpdate(
@@ -527,6 +755,67 @@ export async function callSpecificEntry(bankId: number, entryId: number): Promis
     };
   } catch (error) {
     console.error("[Database] Failed to call specific entry:", error);
+    return null;
+  }
+}
+
+export async function markReceived(entryId: number): Promise<void> {
+  try {
+    const now = Date.now();
+    executeUpdate(
+      "UPDATE queue_entries SET status = 'received', started_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, entryId]
+    );
+  } catch (error) {
+    console.error("[Database] Failed to mark entry as received:", error);
+    throw error;
+  }
+}
+
+export async function requeueEntry(bankId: number, entryId: number): Promise<void> {
+  try {
+    const now = Date.now();
+    executeUpdate(
+      "UPDATE queue_entries SET status = 'waiting', called_at = NULL, started_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status IN ('called','serving','no_show')",
+      [now, entryId]
+    );
+    executeUpdate(
+      "UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL, updated_at = ? WHERE id = ? AND current_queue_entry_id = ?",
+      [now, bankId, entryId]
+    );
+  } catch (error) {
+    console.error("[Database] Failed to requeue entry:", error);
+    throw error;
+  }
+}
+
+export async function getSkippedEntries(): Promise<any[]> {
+  try {
+    return executeQuery(
+      "SELECT * FROM queue_entries WHERE status = 'no_show' ORDER BY updated_at DESC"
+    ).map(mapQueueEntry);
+  } catch (error) {
+    console.error("[Database] Failed to get skipped entries:", error);
+    return [];
+  }
+}
+
+export async function skipNoShow(bankId: number, entryId: number): Promise<any | null> {
+  try {
+    const now = Date.now();
+    executeUpdate(
+      "UPDATE queue_entries SET status = 'no_show', completed_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, entryId]
+    );
+    executeUpdate(
+      "UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL, updated_at = ? WHERE id = ? AND current_queue_entry_id = ?",
+      [now, bankId, entryId]
+    );
+    // Call next customer
+    const nextEntry = await callNextCustomer(bankId);
+    return nextEntry;
+  } catch (error) {
+    console.error("[Database] Failed to skip no-show entry:", error);
     return null;
   }
 }
@@ -586,11 +875,11 @@ export async function resetQueue(): Promise<void> {
   try {
     const now = Date.now();
     executeUpdate(
-      "UPDATE queue_entries SET status = 'cancelled', updated_at = ? WHERE status = 'waiting'",
+      "UPDATE queue_entries SET status = 'cancelled', updated_at = ? WHERE status IN ('waiting', 'serving', 'called')",
       [now]
     );
     
-    executeUpdate("UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL");
+    executeUpdate("UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL, is_active = 0");
   } catch (error) {
     console.error("[Database] Failed to reset queue:", error);
     throw error;
@@ -619,6 +908,7 @@ function mapBankRow(row: any): any {
     assignedOperatorId: row.assigned_operator_id,
     totalServed: row.total_served,
     ipAddress: row.ip_address || "",
+    macAddress: row.mac_address || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -758,6 +1048,19 @@ export async function updateBankIpAddress(bankId: number, ipAddress: string): Pr
   }
 }
 
+export async function updateBankMacAddress(bankId: number, macAddress: string): Promise<void> {
+  try {
+    await getDb();
+    executeUpdate(
+      "UPDATE banks SET mac_address = ?, updated_at = ? WHERE id = ?",
+      [macAddress, Date.now(), bankId]
+    );
+  } catch (error) {
+    console.error("[Database] Failed to update bank MAC address:", error);
+    throw error;
+  }
+}
+
 // ============ System Config Functions ============
 
 export async function getSystemConfig(): Promise<SystemConfig | null> {
@@ -769,7 +1072,7 @@ export async function getSystemConfig(): Promise<SystemConfig | null> {
       id: result[0].id,
       totalBanks: result[0].total_banks,
       currentQueueNumber: result[0].current_queue_number,
-      isSystemActive: result[0].is_system_active,
+      isSystemActive: result[0].is_system_active === 1,
       systemName: result[0].system_name || "SIRAMATİK",
       queuePrefix: result[0].queue_prefix || "",
       maxQueueNumber: result[0].max_queue_number || 0,
@@ -777,6 +1080,21 @@ export async function getSystemConfig(): Promise<SystemConfig | null> {
       businessHoursEnd: result[0].business_hours_end || "18:00",
       kioskMessage: result[0].kiosk_message || "",
       kioskMode: result[0].kiosk_mode || "touch",
+      weatherCity: result[0].weather_city || "",
+      themeBg: result[0].theme_bg || "#000000",
+      themeText: result[0].theme_text || "#ffffff",
+      themeHeader: result[0].theme_header || "#ff006e",
+      themeSubheader: result[0].theme_subheader || "#00d9ff",
+      themeFont: result[0].theme_font || "Courier New, monospace",
+      themeBorder: result[0].theme_border || "#1b98a0",
+      announcements: result[0].announcements || "",
+      tickerSpeed: result[0].ticker_speed ?? 8,
+      tickerFontSize: result[0].ticker_font_size ?? 22,
+      workingDays: result[0].working_days || "1,2,3,4,5",
+      serialBtn1Action: result[0].serial_btn1_action || "simple_ticket",
+      serialBtn2Action: result[0].serial_btn2_action || "priority_elderly",
+      superadminPasscode: result[0].superadmin_passcode || "1234",
+      queueDate: result[0].queue_date || "",
       createdAt: result[0].created_at,
       updatedAt: result[0].updated_at,
     } as SystemConfig;
@@ -832,6 +1150,62 @@ export async function updateSystemConfig(config: Partial<SystemConfig>): Promise
       updates.push("kiosk_mode = ?");
       values.push(config.kioskMode);
     }
+    if (config.weatherCity !== undefined) {
+      updates.push("weather_city = ?");
+      values.push(config.weatherCity);
+    }
+    if (config.themeBg !== undefined) {
+      updates.push("theme_bg = ?");
+      values.push(config.themeBg);
+    }
+    if (config.themeText !== undefined) {
+      updates.push("theme_text = ?");
+      values.push(config.themeText);
+    }
+    if (config.themeHeader !== undefined) {
+      updates.push("theme_header = ?");
+      values.push(config.themeHeader);
+    }
+    if (config.themeSubheader !== undefined) {
+      updates.push("theme_subheader = ?");
+      values.push(config.themeSubheader);
+    }
+    if (config.themeFont !== undefined) {
+      updates.push("theme_font = ?");
+      values.push(config.themeFont);
+    }
+    if (config.themeBorder !== undefined) {
+      updates.push("theme_border = ?");
+      values.push(config.themeBorder);
+    }
+    if (config.announcements !== undefined) {
+      updates.push("announcements = ?");
+      values.push(config.announcements);
+    }
+    if (config.tickerSpeed !== undefined) {
+      updates.push("ticker_speed = ?");
+      values.push(config.tickerSpeed);
+    }
+    if (config.tickerFontSize !== undefined) {
+      updates.push("ticker_font_size = ?");
+      values.push(config.tickerFontSize);
+    }
+    if (config.workingDays !== undefined) {
+      updates.push("working_days = ?");
+      values.push(config.workingDays);
+    }
+    if (config.serialBtn1Action !== undefined) {
+      updates.push("serial_btn1_action = ?");
+      values.push(config.serialBtn1Action);
+    }
+    if (config.serialBtn2Action !== undefined) {
+      updates.push("serial_btn2_action = ?");
+      values.push(config.serialBtn2Action);
+    }
+    if (config.superadminPasscode !== undefined) {
+      updates.push("superadmin_passcode = ?");
+      values.push(config.superadminPasscode);
+    }
 
     updates.push("updated_at = ?");
     values.push(now);
@@ -871,6 +1245,17 @@ export async function initializeSystem(bankCount: number): Promise<void> {
     await initializeBanks(bankCount);
   } catch (error) {
     console.error("[Database] Failed to initialize system:", error);
+    throw error;
+  }
+}
+
+export async function shutdownSystem(): Promise<void> {
+  try {
+    await updateSystemConfig({ isSystemActive: false });
+    await resetQueue();
+    console.log("[Database] System shut down, queue cleared");
+  } catch (error) {
+    console.error("[Database] Failed to shut down system:", error);
     throw error;
   }
 }
@@ -931,12 +1316,13 @@ export async function updateSoundSettings(settings: Partial<SoundSettings>): Pro
 
     if (!existing) {
       executeUpdate(
-        `INSERT INTO sound_settings (sound_type, sound_volume, is_enabled, animation_type, animation_speed, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sound_settings (sound_type, sound_volume, is_enabled, voice_enabled, animation_type, animation_speed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           settings.soundType || "chime",
           settings.soundVolume ?? 70,
           settings.isEnabled ?? true ? 1 : 0,
+          settings.voiceEnabled ?? true ? 1 : 0,
           settings.animationType || "pulse",
           settings.animationSpeed || "normal",
           now,
@@ -966,6 +1352,10 @@ export async function updateSoundSettings(settings: Partial<SoundSettings>): Pro
       if (settings.animationSpeed !== undefined) {
         updates.push("animation_speed = ?");
         values.push(settings.animationSpeed);
+      }
+      if (settings.voiceEnabled !== undefined) {
+        updates.push("voice_enabled = ?");
+        values.push(settings.voiceEnabled ? 1 : 0);
       }
 
       updates.push("updated_at = ?");
@@ -1067,15 +1457,202 @@ export async function getUserByOpenId(openId: string): Promise<any | null> {
 
 // ============ Stats Functions ============
 
+/**
+ * Banko bazlı performans metriklerini döndürür
+ */
+export async function getBankPerformanceStats(): Promise<any[]> {
+  try {
+    await getDb();
+    const banks = await getAllBanks();
+    const metrics: Record<number, any> = {};
+
+    for (const bank of banks) {
+      const entries = executeQuery(
+        `SELECT service_time_ms FROM queue_entries
+         WHERE status = 'completed' AND service_time_ms IS NOT NULL
+         ORDER BY completed_at DESC LIMIT 500`
+      );
+      const bankEntries = entries.filter(() => true);
+      const completed = executeQuery(
+        `SELECT COUNT(*) as cnt, AVG(service_time_ms) as avg_svc,
+                MAX(service_time_ms) as max_svc, MIN(service_time_ms) as min_svc
+         FROM queue_entries
+         WHERE status = 'completed' AND bank_id = ?`,
+        [bank.bankNumber]
+      );
+
+      // queue_entries doesn't have bank_id column directly;
+      // we approximate by looking at banks table's current_queue_entry_id history.
+      // Instead, use a simpler approach: query from system_logs to link entries to banks
+      const logs = executeQuery(
+        `SELECT DISTINCT qe.id, qe.service_time_ms, qe.ticket_number
+         FROM queue_entries qe
+         JOIN system_logs sl ON sl.queue_entry_id = qe.id
+         WHERE sl.event_type IN ('customer_called', 'service_completed')
+         AND sl.bank_id = ? AND qe.status = 'completed'
+         AND qe.service_time_ms IS NOT NULL`,
+        [bank.id]
+      );
+
+      let totalSvc = 0, maxSvc = 0, minSvc = Infinity, count = 0;
+      for (const row of logs) {
+        const t = row.service_time_ms || 0;
+        totalSvc += t;
+        if (t > maxSvc) maxSvc = t;
+        if (t < minSvc) minSvc = t;
+        count++;
+      }
+
+      metrics[bank.id] = {
+        bankId: bank.id,
+        bankNumber: bank.bankNumber,
+        isActive: bank.isActive,
+        totalServed: bank.totalServed,
+        avgServiceTime: count > 0 ? Math.round(totalSvc / count) : 0,
+        maxServiceTime: count > 0 ? maxSvc : 0,
+        minServiceTime: count > 0 ? minSvc : 0,
+      };
+    }
+
+    return Object.values(metrics);
+  } catch (error) {
+    console.error("[Database] Failed to get bank performance stats:", error);
+    return [];
+  }
+}
+
+export async function getOperatorPerformanceStats(startDate?: Date, endDate?: Date): Promise<any[]> {
+  try {
+    await getDb();
+    const operators = await getAllBankOperators();
+    const start = startDate ? startDate.getTime() : 0;
+    const end = endDate ? endDate.getTime() : Date.now();
+
+    const result: any[] = [];
+    for (const op of operators) {
+      const rows = executeQuery(
+        `SELECT qe.id, qe.bank_id, qe.called_at, qe.completed_at, qe.service_time_ms, b.bank_number
+         FROM queue_entries qe
+         LEFT JOIN banks b ON qe.bank_id = b.id
+         WHERE qe.operator_id = ? AND qe.status = 'completed'
+           AND qe.completed_at >= ? AND qe.completed_at <= ?`,
+        [op.id, start, end]
+      );
+
+      const served = rows.length;
+      let totalServiceMs = 0;
+      const bankMap: Record<number, { bankNumber: number; count: number }> = {};
+
+      for (const r of rows) {
+        totalServiceMs += r.service_time_ms || 0;
+        if (r.bank_id) {
+          if (!bankMap[r.bank_id]) bankMap[r.bank_id] = { bankNumber: r.bank_number, count: 0 };
+          bankMap[r.bank_id].count++;
+        }
+      }
+
+      result.push({
+        operatorId: op.id,
+        operatorName: op.name,
+        totalServed: served,
+        avgServiceTimeMs: served > 0 ? Math.round(totalServiceMs / served) : 0,
+        banks: Object.values(bankMap),
+      });
+    }
+    return result;
+  } catch (error) {
+    console.error("[Database] Failed to get operator performance stats:", error);
+    return [];
+  }
+}
+
+/**
+ * Günlük istatistikleri döndürür (son 7 gün)
+ */
+export async function getDailyStatsData(date: Date): Promise<any[]> {
+  try {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(startOfDay.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const results: any[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dayStart = new Date(startOfDay.getTime() + i * 24 * 60 * 60 * 1000);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      const s = dayStart.getTime();
+      const e = dayEnd.getTime();
+
+      const row = executeQuery(
+        `SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) as no_show
+         FROM queue_entries
+         WHERE created_at >= ? AND created_at < ?`,
+        [s, e]
+      );
+
+      results.push({
+        date: dayStart.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" }),
+        ticketCount: row[0]?.total || 0,
+        servedCount: row[0]?.completed || 0,
+        noShowCount: row[0]?.no_show || 0,
+      });
+    }
+    return results;
+  } catch (error) {
+    console.error("[Database] Failed to get daily stats:", error);
+    return [];
+  }
+}
+
+/**
+ * Saatlik istatistikleri döndürür
+ */
+export async function getHourlyStatsData(date: Date): Promise<any[]> {
+  try {
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const s = dayStart.getTime();
+    const e = dayEnd.getTime();
+
+    const results: any[] = [];
+    for (let h = 8; h <= 18; h++) {
+      const hourStart = dayStart.getTime() + h * 60 * 60 * 1000;
+      const hourEnd = hourStart + 60 * 60 * 1000;
+
+      const row = executeQuery(
+        `SELECT COUNT(*) as cnt FROM queue_entries
+         WHERE created_at >= ? AND created_at < ?`,
+        [hourStart, hourEnd]
+      );
+
+      results.push({
+        hour: `${h.toString().padStart(2, "0")}:00`,
+        ticketCount: row[0]?.cnt || 0,
+      });
+    }
+    return results;
+  } catch (error) {
+    console.error("[Database] Failed to get hourly stats:", error);
+    return [];
+  }
+}
+
 export async function getQueueStats(): Promise<{
   waitingCount: number;
   totalProcessed: number;
   averageServiceTime: number;
+  totalNoShow: number;
 }> {
   try {
     const waiting = await getWaitingQueue();
     const completed = executeQuery(
       "SELECT * FROM queue_entries WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 100"
+    );
+    const noShowResult = executeQuery(
+      "SELECT COUNT(*) as count FROM queue_entries WHERE status = 'no_show'"
     );
     
     let averageServiceTime = 0;
@@ -1090,6 +1667,7 @@ export async function getQueueStats(): Promise<{
       waitingCount: waiting.length,
       totalProcessed: completed.length,
       averageServiceTime,
+      totalNoShow: noShowResult[0]?.count || 0,
     };
   } catch (error) {
     console.error("[Database] Failed to get queue stats:", error);
@@ -1097,6 +1675,7 @@ export async function getQueueStats(): Promise<{
       waitingCount: 0,
       totalProcessed: 0,
       averageServiceTime: 0,
+      totalNoShow: 0,
     };
   }
 }
@@ -1139,6 +1718,14 @@ export async function getSystemStats(startDate: Date, endDate: Date): Promise<an
        AND created_at >= ? 
        AND created_at <= ?
        ORDER BY created_at DESC`,
+      [startTime, endTime]
+    );
+
+    const noShowEntries = executeQuery(
+      `SELECT COUNT(*) as count FROM queue_entries
+       WHERE status = 'no_show'
+       AND created_at >= ?
+       AND created_at <= ?`,
       [startTime, endTime]
     );
     
@@ -1185,11 +1772,19 @@ export async function getSystemStats(startDate: Date, endDate: Date): Promise<an
     const averageServiceTime = completed.length > 0 ? Math.round(totalServiceTime / completed.length) : 0;
     const averageWaitTime = completed.length > 0 ? Math.round(totalWaitTime / completed.length) : 0;
     
+    const waiting = await getWaitingQueue();
+
     return {
+      totalTickets: completed.length + waiting.length,
+      totalServed: completed.length,
       totalCompleted: completed.length,
-      totalWaiting: (await getWaitingQueue()).length,
+      totalNoShow: noShowEntries[0]?.count || 0,
+      totalWaiting: waiting.length,
+      waitingCount: waiting.length,
       averageServiceTime,
       averageWaitTime,
+      avgWaitTime: averageWaitTime,
+      avgServiceTime: averageServiceTime,
       bankMetrics: Object.values(bankMetrics),
       startDate,
       endDate,
@@ -1197,10 +1792,16 @@ export async function getSystemStats(startDate: Date, endDate: Date): Promise<an
   } catch (error) {
     console.error("[Database] Failed to get system stats:", error);
     return {
+      totalTickets: 0,
+      totalServed: 0,
       totalCompleted: 0,
+      totalNoShow: 0,
       totalWaiting: 0,
+      waitingCount: 0,
       averageServiceTime: 0,
       averageWaitTime: 0,
+      avgWaitTime: 0,
+      avgServiceTime: 0,
       bankMetrics: [],
       startDate,
       endDate,

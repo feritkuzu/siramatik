@@ -10,6 +10,7 @@ interface SocketEvents {
   "system:state": (data: any) => void;
   "notification:play": (data: { type: string; ticketNumber: number; bankId: number }) => void;
   "soundSettings:updated": (data: { soundType: string; soundVolume: number; isEnabled: boolean; animationType: string; animationSpeed: string }) => void;
+  "system:shutdown": (data: { timestamp: number }) => void;
 }
 
 export function useSocket(
@@ -25,10 +26,12 @@ export function useSocket(
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
     });
 
     socketRef.current = socket;
+
+    let wasDisconnected = false;
 
     socket.on("connect", () => {
       console.log(`[Socket] Connected as ${clientType}${bankId ? ` (Bank ${bankId})` : ""}`);
@@ -38,14 +41,27 @@ export function useSocket(
 
       // Request initial system state
       socket.emit("system:requestState");
+
+      // Sunucu yeniden başladıysa sayfayı tazele
+      if (wasDisconnected) {
+        wasDisconnected = false;
+        window.location.reload();
+      }
     });
 
     socket.on("disconnect", () => {
       console.log("[Socket] Disconnected");
+      wasDisconnected = true;
     });
 
     socket.on("connect_error", (error) => {
       console.error("[Socket] Connection error:", error);
+    });
+
+    // Sistem kapatılınca sayfayı tazele
+    socket.on("system:shutdown", () => {
+      console.log("[Socket] System shut down, reloading");
+      window.location.reload();
     });
 
     // Setup event listeners
