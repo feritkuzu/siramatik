@@ -155,6 +155,7 @@ export default function AdminPanel() {
     soundVolume: 70,
     isEnabled: true,
     voiceEnabled: true,
+    notificationSound: "chime",
     animationType: "pulse",
     animationSpeed: "normal",
   });
@@ -163,6 +164,7 @@ export default function AdminPanel() {
   // Sound settings queries and mutations
   const { data: fetchedSoundSettings } = trpc.admin.getSoundSettings.useQuery();
   const updateSoundSettingsMutation = trpc.admin.updateSoundSettings.useMutation();
+  const { data: notificationSounds } = trpc.admin.getNotificationSounds.useQuery();
 
   // Socket.io connection
   const { on, emit } = useSocket("admin");
@@ -596,6 +598,61 @@ export default function AdminPanel() {
               className="mt-4 h-12 px-6 font-black bg-yellow-600 hover:bg-yellow-700 text-white border-4 border-yellow-600"
             >
               {updateSystemSettingsMutation.isPending ? "KAYDEDİLİYOR..." : "SİSTEM AYARLARINI KAYDET"}
+            </Button>
+          </div>
+
+          {/* Sound & Notification Settings */}
+          <div className="border-4 border-primary p-6 mt-6">
+            <h3 className="text-lg font-black neon-pink mb-4" style={{ textShadow: "0 0 10px currentColor" }}>BİLDİRİM & SES AYARLARI</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" checked={soundSettings.isEnabled} onChange={(e) => setSoundSettings({ ...soundSettings, isEnabled: e.target.checked })} className="w-5 h-5" />
+                <label className="text-sm font-bold text-foreground/80">Ses Aktif</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" checked={soundSettings.voiceEnabled} onChange={(e) => setSoundSettings({ ...soundSettings, voiceEnabled: e.target.checked })} className="w-5 h-5" />
+                <label className="text-sm font-bold text-foreground/80">Sesli Anons (TTS)</label>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Ses Seviyesi</label>
+                <input type="range" min={0} max={100} value={soundSettings.soundVolume} onChange={(e) => setSoundSettings({ ...soundSettings, soundVolume: parseInt(e.target.value) })} className="w-full" />
+                <span className="text-xs text-foreground/60">{soundSettings.soundVolume}%</span>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Bildirim Sesi</label>
+                <select value={soundSettings.notificationSound || "chime"} onChange={(e) => setSoundSettings({ ...soundSettings, notificationSound: e.target.value })} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2">
+                  <option value="chime">🔔 Ding-Dong (Varsayılan)</option>
+                  {notificationSounds?.map((s: any) => (
+                    <option key={s.name} value={s.name}>{s.name.replace(/soundreality-notification-/g, "").replace(/-/g, " ")}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Animasyon Tipi</label>
+                <select value={soundSettings.animationType} onChange={(e) => setSoundSettings({ ...soundSettings, animationType: e.target.value })} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2">
+                  <option value="pulse">Pulse</option>
+                  <option value="flash">Flash</option>
+                  <option value="bounce">Bounce</option>
+                  <option value="shake">Shake</option>
+                  <option value="rainbow">Rainbow</option>
+                  <option value="glow">Glow</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Animasyon Hızı</label>
+                <select value={soundSettings.animationSpeed} onChange={(e) => setSoundSettings({ ...soundSettings, animationSpeed: e.target.value })} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2">
+                  <option value="fast">Hızlı</option>
+                  <option value="normal">Normal</option>
+                  <option value="slow">Yavaş</option>
+                </select>
+              </div>
+            </div>
+            <Button
+              onClick={handleUpdateSoundSettings}
+              disabled={updateSoundSettingsMutation.isPending}
+              className="mt-4 h-10 px-6 font-black bg-purple-600 hover:bg-purple-700 text-white border-4 border-purple-600"
+            >
+              {updateSoundSettingsMutation.isPending ? "KAYDEDİLİYOR..." : "SES AYARLARINI KAYDET"}
             </Button>
           </div>
 

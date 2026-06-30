@@ -562,12 +562,30 @@ export const appRouter = router({
         soundVolume: settings.sound_volume,
         isEnabled: !!(settings.is_enabled),
         voiceEnabled: !!(settings.voice_enabled),
+        notificationSound: settings.notification_sound || null,
         animationType: settings.animation_type,
         animationSpeed: settings.animation_speed,
         customSoundUrl: settings.custom_sound_url,
         createdAt: settings.created_at,
         updatedAt: settings.updated_at,
       };
+    }),
+
+    // Get available notification sound files
+    getNotificationSounds: publicProcedure.query(async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const dir = path.join(process.cwd(), "release", "Media", "Notification");
+      try {
+        const files = fs.readdirSync(dir).filter((f: string) => f.endsWith(".mp3"));
+        return files.map((f: string) => ({
+          name: path.parse(f).name,
+          file: f,
+          url: `/notification-sounds/${f}`,
+        }));
+      } catch {
+        return [];
+      }
     }),
 
     // Get printer settings

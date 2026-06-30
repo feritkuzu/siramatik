@@ -10,6 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { setupSocketIO } from "./socket";
+import path from "path";
 import { getAllBanks, getSystemConfig, updateSystemConfig, resetQueue } from "../db";
 import { startDiscovery } from "./discovery";
 import { getIO } from "./socket";
@@ -96,6 +97,9 @@ async function startServer() {
     } catch (_) {}
     next();
   });
+
+  // Serve notification sound files
+  app.use("/notification-sounds", express.static(path.join(process.cwd(), "release", "Media", "Notification")));
 
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {

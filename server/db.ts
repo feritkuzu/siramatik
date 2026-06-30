@@ -483,6 +483,16 @@ async function runMigrations(): Promise<void> {
       }
     } catch (e) { console.error("[Database] Failed to add voice_enabled:", e); }
 
+    // Add notification_sound to sound_settings
+    try {
+      const ssCols2 = executeQuery("PRAGMA table_info(sound_settings)");
+      if (!ssCols2.some((c: any) => c.name === "notification_sound")) {
+        const stmt = _db.prepare("ALTER TABLE sound_settings ADD COLUMN notification_sound TEXT DEFAULT 'chime'");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added notification_sound column to sound_settings");
+      }
+    } catch (e) { console.error("[Database] Failed to add notification_sound:", e); }
+
     saveDb();
   } catch (error) {
     console.error("[Database] Migration error:", error);
@@ -1313,13 +1323,14 @@ export async function updateSoundSettings(settings: Partial<SoundSettings>): Pro
 
     if (!existing) {
       executeUpdate(
-        `INSERT INTO sound_settings (sound_type, sound_volume, is_enabled, voice_enabled, animation_type, animation_speed, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sound_settings (sound_type, sound_volume, is_enabled, voice_enabled, notification_sound, animation_type, animation_speed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           settings.soundType || "chime",
           settings.soundVolume ?? 70,
           settings.isEnabled ?? true ? 1 : 0,
           settings.voiceEnabled ?? true ? 1 : 0,
+          settings.notificationSound || "chime",
           settings.animationType || "pulse",
           settings.animationSpeed || "normal",
           now,
@@ -1353,6 +1364,10 @@ export async function updateSoundSettings(settings: Partial<SoundSettings>): Pro
       if (settings.voiceEnabled !== undefined) {
         updates.push("voice_enabled = ?");
         values.push(settings.voiceEnabled ? 1 : 0);
+      }
+      if (settings.notificationSound !== undefined) {
+        updates.push("notification_sound = ?");
+        values.push(settings.notificationSound);
       }
 
       updates.push("updated_at = ?");

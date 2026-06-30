@@ -241,30 +241,37 @@ export default function DisplayScreen() {
   const playNotificationSound = () => {
     if (!soundSettings.isEnabled) return;
 
+    const ns = soundSettings.notificationSound;
+    if (ns && ns !== "chime") {
+      // Dosyadan ses çal (2 tekrar)
+      const audio = new Audio(`/notification-sounds/${ns}.mp3`);
+      audio.volume = (soundSettings.soundVolume || 70) / 100;
+      audio.play().catch(() => {});
+      setTimeout(() => {
+        const audio2 = new Audio(`/notification-sounds/${ns}.mp3`);
+        audio2.volume = (soundSettings.soundVolume || 70) / 100;
+        audio2.play().catch(() => {});
+      }, 600);
+      return;
+    }
+
+    // Oscillator ding-dong (fallback)
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     const now = audioContext.currentTime;
     const volume = soundSettings.soundVolume / 100;
 
     const getFrequencies = () => {
       switch (soundSettings.soundType) {
-        case "bell":
-          return { ding: 1200, dong: 900 };
-        case "alarm":
-          return { ding: 1000, dong: 600 };
-        case "beep":
-          return { ding: 800, dong: 500 };
-        case "siren":
-          return { ding: 1500, dong: 1000 };
-        case "notification":
-          return { ding: 900, dong: 700 };
+        case "bell": return { ding: 1200, dong: 900 };
+        case "alarm": return { ding: 1000, dong: 600 };
+        case "beep": return { ding: 800, dong: 500 };
+        case "siren": return { ding: 1500, dong: 1000 };
+        case "notification": return { ding: 900, dong: 700 };
         case "chime":
-        default:
-          return { ding: 880, dong: 660 };
+        default: return { ding: 880, dong: 660 };
       }
     };
-
     const { ding, dong } = getFrequencies();
-
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
     osc.connect(gain);
