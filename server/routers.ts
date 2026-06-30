@@ -542,16 +542,31 @@ export const appRouter = router({
     // Get sound settings
     getSoundSettings: publicProcedure.query(async () => {
       const settings = await db.getSoundSettings();
-      return settings || {
-        id: 1,
-        soundType: "chime" as const,
-        soundVolume: 70,
-        isEnabled: true,
-        animationType: "pulse" as const,
-        animationSpeed: "normal" as const,
-        customSoundUrl: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      if (!settings) {
+        return {
+          id: 1,
+          soundType: "chime" as const,
+          soundVolume: 70,
+          isEnabled: true,
+          voiceEnabled: true,
+          animationType: "pulse" as const,
+          animationSpeed: "normal" as const,
+          customSoundUrl: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+      return {
+        id: settings.id,
+        soundType: settings.sound_type,
+        soundVolume: settings.sound_volume,
+        isEnabled: !!(settings.is_enabled),
+        voiceEnabled: !!(settings.voice_enabled),
+        animationType: settings.animation_type,
+        animationSpeed: settings.animation_speed,
+        customSoundUrl: settings.custom_sound_url,
+        createdAt: settings.created_at,
+        updatedAt: settings.updated_at,
       };
     }),
 

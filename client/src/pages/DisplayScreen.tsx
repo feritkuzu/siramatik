@@ -27,6 +27,7 @@ export default function DisplayScreen() {
     soundType: "chime",
     soundVolume: 70,
     isEnabled: true,
+    voiceEnabled: true,
     animationType: "pulse",
     animationSpeed: "normal",
     customSoundUrl: null,

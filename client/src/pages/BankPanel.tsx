@@ -464,12 +464,14 @@ export default function BankPanel() {
                       {isLoading ? "İŞLENİYOR..." : "HİZMET BİTTİ"}
                     </Button>
                   </div>
-                  <Button onClick={handleSkipNoShow} disabled={isLoading || isReceived} className="h-8 px-4 text-xs font-black text-white rounded-none border-2" style={{ backgroundColor: "#ffbe0b", borderColor: "#ffbe0b" }}>
-                    {isLoading ? "İŞLENİYOR..." : "BOŞ GEÇ"}
-                  </Button>
-                  <Button onClick={handleRequeue} disabled={isLoading} className="h-8 px-4 text-xs font-black text-white rounded-none border-2" style={{ backgroundColor: "#f72585", borderColor: "#f72585" }}>
-                    GERİ EKLE
-                  </Button>
+                  <div className="flex gap-1 justify-center">
+                    <Button onClick={handleSkipNoShow} disabled={isLoading || isReceived} className="h-8 px-4 text-xs font-black text-white rounded-none border-2" style={{ backgroundColor: "#ffbe0b", borderColor: "#ffbe0b" }}>
+                      {isLoading ? "İŞLENİYOR..." : "BOŞ GEÇ"}
+                    </Button>
+                    <Button onClick={handleRequeue} disabled={isLoading} className="h-8 px-4 text-xs font-black text-white rounded-none border-2" style={{ backgroundColor: "#f72585", borderColor: "#f72585" }}>
+                      PAS GEÇ
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (

@@ -776,8 +776,8 @@ export async function requeueEntry(bankId: number, entryId: number): Promise<voi
   try {
     const now = Date.now();
     executeUpdate(
-      "UPDATE queue_entries SET status = 'waiting', bank_id = NULL, called_at = NULL, started_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status IN ('called','serving','no_show')",
-      [now, entryId]
+      "UPDATE queue_entries SET status = 'waiting', bank_id = NULL, called_at = NULL, started_at = NULL, completed_at = NULL, created_at = ?, updated_at = ? WHERE id = ? AND status IN ('called','serving','no_show')",
+      [now, now, entryId]
     );
     executeUpdate(
       "UPDATE banks SET is_occupied = 0, current_queue_entry_id = NULL, updated_at = ? WHERE id = ? AND current_queue_entry_id = ?",
