@@ -160,13 +160,10 @@ export default function DisplayScreen() {
       playNotificationSound();
 
       setNotificationQueue((prev) => [...prev, { ticketNumber: ticketNum, bankId: data.bankId }]);
-
-      const animationDuration = soundSettings.animationSpeed === "fast" ? 2000 : soundSettings.animationSpeed === "slow" ? 8000 : 5000;
-      setTimeout(() => setPulsingTicket(null), animationDuration);
     });
 
     return unsubscribe;
-  }, [on]);
+  }, [on, playNotificationSound]);
 
   const speakNotification = useCallback((ticketNumber: number, bankId: number) => {
     if (!window.speechSynthesis) return;
@@ -238,12 +235,11 @@ export default function DisplayScreen() {
     return unsubscribe;
   }, [on]);
 
-  const playNotificationSound = () => {
+  const playNotificationSound = useCallback(() => {
     if (!soundSettings.isEnabled) return;
 
     const ns = soundSettings.notificationSound;
     if (ns && ns !== "chime") {
-      // Dosyadan ses çal (2 tekrar)
       const audio = new Audio(`/notification-sounds/${ns}.mp3`);
       audio.volume = (soundSettings.soundVolume || 70) / 100;
       audio.play().catch(() => {});
@@ -255,7 +251,6 @@ export default function DisplayScreen() {
       return;
     }
 
-    // Oscillator ding-dong (fallback)
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     const now = audioContext.currentTime;
     const volume = soundSettings.soundVolume / 100;
@@ -285,7 +280,7 @@ export default function DisplayScreen() {
     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
     osc.start(now);
     osc.stop(now + 0.5);
-  };
+  }, [soundSettings.isEnabled, soundSettings.notificationSound, soundSettings.soundVolume, soundSettings.soundType]);
 
   const getPriorityLabel = (priorityType?: string) => {
     switch (priorityType) {
