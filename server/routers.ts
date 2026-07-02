@@ -711,6 +711,8 @@ export const appRouter = router({
         soundType: z.enum(["bell", "chime", "alarm", "beep", "siren", "notification", "custom"]).optional(),
         soundVolume: z.number().min(0).max(100).optional(),
         isEnabled: z.boolean().optional(),
+        voiceEnabled: z.boolean().optional(),
+        notificationSound: z.string().optional(),
         animationType: z.enum(["pulse", "flash", "bounce", "shake", "rainbow", "glow"]).optional(),
         animationSpeed: z.enum(["slow", "normal", "fast"]).optional(),
       }))
