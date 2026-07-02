@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSocket } from "@/hooks/useSocket";
 
 interface CalledTicket {
   ticketNumber: number;
   bankId: number;
+  entryId?: number;
   timestamp: number;
   isPriority?: boolean;
   priorityType?: string;
   completed?: boolean;
+  completedAt?: number;
 }
 
 interface CallNotification {
@@ -19,7 +21,6 @@ interface CallNotification {
 export default function DisplayScreen() {
   const [calledTickets, setCalledTickets] = useState<CalledTicket[]>([]);
   const [waitingQueue, setWaitingQueue] = useState<any[]>([]);
-  const [pulsingTicket, setPulsingTicket] = useState<number | null>(null);
   const [banks, setBanks] = useState<any[]>([]);
   const [bankMap, setBankMap] = useState<Record<number, number>>({});
   const [soundSettings, setSoundSettings] = useState<any>({
@@ -28,6 +29,7 @@ export default function DisplayScreen() {
     soundVolume: 70,
     isEnabled: true,
     voiceEnabled: true,
+    notificationSound: "chime",
     animationType: "pulse",
     animationSpeed: "normal",
     customSoundUrl: null,
@@ -51,52 +53,104 @@ export default function DisplayScreen() {
     window.speechSynthesis.speak(utterance);
   }, [bankMap, soundSettings.isEnabled, soundSettings.voiceEnabled, soundSettings.soundVolume]);
 
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const getOrCreateAudioContext = useCallback((): AudioContext => {
+    if (audioContextRef.current) return audioContextRef.current;
+    const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+    const earlyCtx = (window as any).__audioCtx;
+    if (earlyCtx && earlyCtx.state !== "closed") {
+      audioContextRef.current = earlyCtx;
+    } else {
+      audioContextRef.current = new Ctor();
+    }
+    if (audioContextRef.current!.state === "suspended") {
+      audioContextRef.current!.resume();
+    }
+    return audioContextRef.current!;
+  }, []);
+
+  const getAudioContext = useCallback((): AudioContext => {
+    return getOrCreateAudioContext();
+  }, [getOrCreateAudioContext]);
+
+  const playMp3ViaAudioContext = useCallback(async (url: string, volume: number) => {
+    try {
+      const ac = getAudioContext();
+      if (ac.state === "suspended") await ac.resume();
+      const resp = await fetch(url);
+      const buf = await resp.arrayBuffer();
+      const decoded = await ac.decodeAudioData(buf);
+      const src = ac.createBufferSource();
+      src.buffer = decoded;
+      const gain = ac.createGain();
+      gain.gain.value = volume;
+      src.connect(gain);
+      gain.connect(ac.destination);
+      src.start(0);
+    } catch (e) {
+      console.warn("[Display] MP3 playback error:", e);
+    }
+  }, [getAudioContext]);
+
+  const playToneViaAudioContext = useCallback(() => {
+    try {
+      const ac = getAudioContext();
+      if (ac.state === "suspended") ac.resume();
+      const now = ac.currentTime;
+      const volume = (soundSettings.soundVolume || 70) / 100;
+
+      const getFrequencies = () => {
+        switch (soundSettings.soundType) {
+          case "bell": return { ding: 1200, dong: 900 };
+          case "alarm": return { ding: 1000, dong: 600 };
+          case "beep": return { ding: 800, dong: 500 };
+          case "siren": return { ding: 1500, dong: 1000 };
+          case "notification": return { ding: 900, dong: 700 };
+          case "chime":
+          default: return { ding: 880, dong: 660 };
+        }
+      };
+      const { ding, dong } = getFrequencies();
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(ding, now);
+      gain.gain.setValueAtTime(volume * 0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.frequency.setValueAtTime(dong, now + 0.25);
+      gain.gain.setValueAtTime(volume * 0.3, now + 0.25);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    } catch (e) {
+      console.warn("[Display] Tone playback error:", e);
+    }
+  }, [soundSettings.soundType, soundSettings.soundVolume, getAudioContext]);
+
+  const playCountRef = useRef(0);
+
   const playNotificationSound = useCallback(() => {
+    playCountRef.current++;
+    console.log(`[Display] playNotificationSound called #${playCountRef.current}`, { isEnabled: soundSettings.isEnabled, ns: soundSettings.notificationSound });
+
     if (!soundSettings.isEnabled) return;
 
+    // Ensure AudioContext is ready (in Electron with autoplayPolicy it's always running)
+    getOrCreateAudioContext();
+
     const ns = soundSettings.notificationSound;
+    const vol = (soundSettings.soundVolume || 70) / 100;
+
     if (ns && ns !== "chime") {
-      const audio = new Audio(`/notification-sounds/${ns}.mp3`);
-      audio.volume = (soundSettings.soundVolume || 70) / 100;
-      audio.play().catch(() => {});
-      setTimeout(() => {
-        const audio2 = new Audio(`/notification-sounds/${ns}.mp3`);
-        audio2.volume = (soundSettings.soundVolume || 70) / 100;
-        audio2.play().catch(() => {});
-      }, 600);
-      return;
+      const url = `/notification-sounds/${ns}.mp3`;
+      playMp3ViaAudioContext(url, vol);
+    } else {
+      playToneViaAudioContext();
     }
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const now = audioContext.currentTime;
-    const volume = soundSettings.soundVolume / 100;
-
-    const getFrequencies = () => {
-      switch (soundSettings.soundType) {
-        case "bell": return { ding: 1200, dong: 900 };
-        case "alarm": return { ding: 1000, dong: 600 };
-        case "beep": return { ding: 800, dong: 500 };
-        case "siren": return { ding: 1500, dong: 1000 };
-        case "notification": return { ding: 900, dong: 700 };
-        case "chime":
-        default: return { ding: 880, dong: 660 };
-      }
-    };
-    const { ding, dong } = getFrequencies();
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.connect(gain);
-    gain.connect(audioContext.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(ding, now);
-    gain.gain.setValueAtTime(volume * 0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-    osc.frequency.setValueAtTime(dong, now + 0.25);
-    gain.gain.setValueAtTime(volume * 0.3, now + 0.25);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-    osc.start(now);
-    osc.stop(now + 0.5);
-  }, [soundSettings.isEnabled, soundSettings.notificationSound, soundSettings.soundVolume, soundSettings.soundType]);
+  }, [soundSettings.isEnabled, soundSettings.notificationSound, soundSettings.soundVolume, playMp3ViaAudioContext, playToneViaAudioContext, getOrCreateAudioContext]);
 
   // Fetch waiting queue
   const { data: queue } = trpc.queue.getWaitingQueue.useQuery(undefined, {
@@ -119,22 +173,27 @@ export default function DisplayScreen() {
   });
 
   useEffect(() => {
-    if (!activeCalled?.length) return;
     setCalledTickets((prev) => {
-      const existing = new Map(prev.map((t) => [`${t.ticketNumber}-${t.bankId}`, t]));
-      for (const entry of activeCalled) {
+      const activeKeys = new Set((activeCalled ?? []).map((e: any) => `${e.ticketNumber}-${e.bankId}`));
+      const map = new Map(prev.map((t) => [`${t.ticketNumber}-${t.bankId}`, t]));
+      // Add new active entries
+      for (const entry of activeCalled ?? []) {
         const key = `${entry.ticketNumber}-${entry.bankId}`;
-        if (!existing.has(key)) {
-          existing.set(key, {
+        if (!map.has(key)) {
+          map.set(key, {
             ticketNumber: entry.ticketNumber,
             bankId: entry.bankId,
+            entryId: entry.id,
             timestamp: entry.calledAt ?? Date.now(),
             isPriority: entry.isPriority,
             priorityType: entry.priorityType,
           });
         }
       }
-      return Array.from(existing.values());
+      // Remove entries no longer active (unless completed, timeout will clean those)
+      return Array.from(map.values()).filter(
+        (t) => activeKeys.has(`${t.ticketNumber}-${t.bankId}`) || t.completed
+      );
     });
   }, [activeCalled]);
 
@@ -169,6 +228,7 @@ export default function DisplayScreen() {
       root.style.setProperty("--secondary", c.themeSubheader || "#415a77");
       root.style.setProperty("--border", c.themeBorder || "#1b98a0");
       document.body.style.fontFamily = c.themeFont || "Segoe UI, sans-serif";
+      document.body.style.fontSize = (c.themeFontSize ?? 16) + "px";
     }
   }, [config]);
 
@@ -209,6 +269,7 @@ export default function DisplayScreen() {
         const ticket: CalledTicket = {
           ticketNumber: ticketNum,
           bankId: data.bankId,
+          entryId: data.entryId,
           timestamp: data.timestamp ?? Date.now(),
           isPriority: data.isPriority,
           priorityType: data.priorityType,
@@ -216,10 +277,9 @@ export default function DisplayScreen() {
         return [ticket, ...prev.filter((t) => t.ticketNumber !== ticketNum)];
       });
 
-      setPulsingTicket(ticketNum);
-      playNotificationSound();
-
       setNotificationQueue((prev) => [...prev, { ticketNumber: ticketNum, bankId: data.bankId }]);
+
+      playNotificationSound();
     });
 
     return unsubscribe;
@@ -239,7 +299,7 @@ export default function DisplayScreen() {
   // Overlay'i 5 saniye sonra kapat
   useEffect(() => {
     if (!callNotification) return;
-    const timer = setTimeout(() => setCallNotification(null), 5000);
+    const timer = setTimeout(() => setCallNotification(null), 8000);
     return () => clearTimeout(timer);
   }, [callNotification]);
 
@@ -252,7 +312,7 @@ export default function DisplayScreen() {
         const exists = prev.some((t) => t.ticketNumber === data.ticketNumber);
         if (!exists) return prev;
         return prev.map((t) =>
-          t.ticketNumber === data.ticketNumber ? { ...t, completed: true } : t
+          t.ticketNumber === data.ticketNumber ? { ...t, completed: true, completedAt: data.timestamp ?? Date.now() } : t
         );
       });
 
@@ -272,6 +332,22 @@ export default function DisplayScreen() {
     return unsubscribe;
   }, [on]);
 
+  // Listen for notification:play event as additional trigger
+  useEffect(() => {
+    let count = 0;
+    const unsubscribe = on("notification:play", (data) => {
+      count++;
+      console.log(`[Display] notification:play event #${count}:`, data);
+      if (data.type === "customer_called") {
+        playNotificationSound();
+      }
+    });
+    return () => {
+      console.log(`[Display] notification:play listener cleaned up (received ${count} events)`);
+      unsubscribe();
+    };
+  }, [on, playNotificationSound]);
+
   // Listen for sound settings updates
   useEffect(() => {
     const unsubscribe = on("soundSettings:updated", (data) => {
@@ -281,44 +357,6 @@ export default function DisplayScreen() {
 
     return unsubscribe;
   }, [on]);
-
-  const getPriorityLabel = (priorityType?: string) => {
-    switch (priorityType) {
-      case "elderly":
-        return "👴 Yaşlı";
-      case "disabled":
-        return "♿ Engelli";
-      case "pregnant":
-        return "🤰 Hamile";
-      default:
-        return "";
-    }
-  };
-
-  const getAnimationClass = () => {
-    const speedClass = soundSettings.animationSpeed === "fast" ? "animation-fast" : soundSettings.animationSpeed === "slow" ? "animation-slow" : "animation-normal";
-    return `${soundSettings.animationType}-animation ${speedClass}`;
-  };
-
-  const getAnimationStyle = () => {
-    const speedMap: Record<string, string> = {
-      fast: "0.5s",
-      normal: "1s",
-      slow: "2s",
-    };
-    const duration = speedMap[soundSettings.animationSpeed] || "1s";
-
-    const animationMap: Record<string, string> = {
-      pulse: `pulse ${duration} ease-in-out infinite`,
-      flash: `flash ${duration} ease-in-out infinite`,
-      bounce: `bounce ${duration} ease-in-out infinite`,
-      shake: `shake ${duration} ease-in-out infinite`,
-      rainbow: `rainbow ${duration} ease-in-out infinite`,
-      glow: `glow ${duration} ease-in-out infinite`,
-    };
-
-    return animationMap[soundSettings.animationType] || `pulse ${duration} ease-in-out infinite`;
-  };
 
   // Real-time clock
   const [clock, setClock] = useState(new Date());
@@ -414,57 +452,59 @@ export default function DisplayScreen() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row gap-6 p-6 overflow-hidden">
-        {/* Left - Called Tickets List */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="border-b-2 border-border pb-2 mb-3 flex items-center gap-4">
-            <h2 className="text-xl font-black neon-pink flex-1">ÇAĞRILAN</h2>
-            <span className="text-xs text-foreground/60">{connectedBankIds?.length || 0} Aktif Banko</span>
+      <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
+        {/* Left - Waiting Queue */}
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <div className="border-b-2 border-secondary pb-1 mb-2 flex items-center gap-2">
+            <h2 className="text-lg font-black neon-purple">BEKLEYENLER</h2>
+            <span className="text-xs text-foreground/60">{waitingQueue.length} kişi</span>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {[...calledTickets]
-              .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0))
-              .map((ticket) => (
-              <div key={`${ticket.ticketNumber}-${ticket.bankId}`}
-                className={`flex items-center gap-3 py-1.5 ${ticket.completed ? "opacity-40" : ""}`}>
-                <div className={`text-xl font-black w-12 text-right ${ticket.completed ? "text-foreground/40" : "neon-pink"}`}>
-                  {ticket.ticketNumber}
-                </div>
-                <div className={`text-base font-bold flex-1 ${ticket.completed ? "text-foreground/40" : "neon-blue"}`}>
-                  BANKO {bankMap[ticket.bankId] ?? ticket.bankId}
-                </div>
-                {ticket.isPriority && !ticket.completed && (
-                  <span className="text-xs text-yellow-400">{getPriorityLabel(ticket.priorityType)}</span>
-                )}
-                {ticket.completed && <span className="text-xs text-green-400">✓</span>}
-              </div>
-            ))}
-            {calledTickets.length === 0 && (
-              <div className="flex items-center justify-center h-full text-lg text-foreground/40">Bekleniyor...</div>
-            )}
-          </div>
-        </div>
-
-        {/* Right - Waiting Queue */}
-        <div className="w-full md:w-64 flex flex-col min-h-0">
-          <div className="border-b-2 border-secondary pb-2 mb-3">
-            <h2 className="text-lg font-black neon-blue">BEKLEYEN</h2>
-            <p className="text-xs text-foreground/60">{waitingQueue.length} kişi</p>
-          </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto space-y-0.5">
             {waitingQueue.map((entry, index) => (
-              <div key={entry.id} className="flex items-center gap-2 py-1">
-                <div className="text-sm font-black text-foreground/50 w-6 text-right shrink-0">{index + 1}</div>
-                <div className="text-base font-bold neon-blue flex-1">#{entry.ticketNumber}</div>
+              <div key={entry.id} className="flex items-center gap-3 py-1.5 border-b border-border/10 text-sm">
+                <span className="font-black text-foreground/30 w-6 text-right shrink-0">{index + 1}.</span>
+                <span className="text-xl font-black neon-pink flex-1">#{entry.ticketNumber}</span>
+                <span className="text-xs text-foreground/50 font-mono shrink-0">
+                  {new Date(entry.createdAt ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
                 {entry.isPriority && entry.priorityType && (
-                  <span className="text-[10px] text-yellow-400 shrink-0">
-                    {entry.priorityType === "elderly" ? "Yaşlı" : entry.priorityType === "disabled" ? "Engelli" : "Hamile"}
+                  <span className="text-[10px] text-yellow-400 shrink-0 border border-yellow-600/40 px-1 py-0.5 rounded">
+                    {entry.priorityType === "elderly" ? "YAŞLI" : entry.priorityType === "disabled" ? "ENGELLİ" : "HAMİLE"}
                   </span>
                 )}
               </div>
             ))}
             {waitingQueue.length === 0 && (
-              <div className="text-center text-foreground/40 py-6 text-sm">Kuyruk boş</div>
+              <div className="flex items-center justify-center h-32 text-sm text-foreground/40">Kuyruk boş</div>
+            )}
+          </div>
+        </div>
+
+        {/* Right - Active Bank Cards */}
+        <div className="w-full md:w-80 flex flex-col min-h-0 shrink-0">
+          <div className="border-b-2 border-cyan-500 pb-1 mb-2 flex items-center gap-2">
+            <h2 className="text-lg font-black neon-blue">AKTİF BANKOLAR</h2>
+            <span className="text-xs text-foreground/60">{banks.filter((b: any) => connectedBankIds?.includes(b.id)).length} aktif</span>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2">
+            {banks.filter((b: any) => connectedBankIds?.includes(b.id)).map((bank: any) => {
+              const activeTicket = calledTickets.find((t) => t.bankId === bank.id && !t.completed);
+              return (
+              <div key={bank.id}
+                className={`border-l-4 p-3 flex items-center justify-between ${bank.isOccupied ? "border-cyan-400 bg-card/80" : "border-green-500/60 bg-card/40"}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block w-2 h-2 rounded-full ${bank.isOccupied ? "bg-cyan-400 animate-pulse" : "bg-green-500"}`}></span>
+                  <span className="text-lg font-black neon-blue">BANKO {bank.bankNumber}</span>
+                </div>
+                {bank.isOccupied && activeTicket ? (
+                  <span className="text-5xl font-black text-cyan-300">{activeTicket.ticketNumber}</span>
+                ) : (
+                  <span className="text-xs font-bold text-green-400">MÜSAİT</span>
+                )}
+              </div>
+            )})}
+            {(!banks || banks.filter((b: any) => connectedBankIds?.includes(b.id)).length === 0) && (
+              <div className="flex items-center justify-center h-32 text-sm text-foreground/40">Aktif banko yok</div>
             )}
           </div>
         </div>
@@ -578,9 +618,6 @@ export default function DisplayScreen() {
         @keyframes tickerScroll {
           0% { transform: translateX(100vw); }
           100% { transform: translateX(-100%); }
-        }
-        .ticker-text {
-          text-shadow: 0 0 4px currentColor;
         }
       `}</style>
     </div>

@@ -30,7 +30,7 @@ if ($Setup) {
 if ($Kapat) {
     Write-Host "Sistem kapatiliyor..." -ForegroundColor Yellow
     Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
-    Get-Process -Name "msedge","chrome","Siramatik*" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" -or $_.MainWindowTitle -like "*kiosk*" -or $_.MainWindowTitle -like "*admin*" -or $_.MainWindowTitle -like "*SIRAMATIK*" } | Stop-Process -ErrorAction SilentlyContinue
+    Get-Process -Name "msedge","chrome","Siramatik*","electron" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "" -or $_.MainWindowTitle -like "*display*" -or $_.MainWindowTitle -like "*kiosk*" -or $_.MainWindowTitle -like "*admin*" -or $_.MainWindowTitle -like "*SIRAMATIK*" -or $_.MainWindowTitle -like "*sıramatik*" } | Stop-Process -ErrorAction SilentlyContinue
     Remove-Item -Path "$env:TEMP\siramatik-locks" -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "$env:TEMP\siramatik-kiosk-profile" -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "$env:TEMP\siramatik-display-profile" -Recurse -Force -ErrorAction SilentlyContinue
@@ -164,22 +164,22 @@ $kioskUrl = "http://localhost:${PORT}/kiosk"
     Write-Host "  -> Kiosk penceresi zaten acik, yenisi acilmadi" -ForegroundColor Cyan
 }
 
-# 2. Display panel on EXTENDED monitor - full screen
-$displayUrl = "http://localhost:${PORT}/display"
+# 2. Display panel on EXTENDED monitor - Electron ile (autoplay politikası bypass)
 if (-not (Is-WindowOpen "display")) {
-    if ($browserPath) {
-        $tempProfileDisplay = Join-Path $env:TEMP "siramatik-display-profile"
+    $electronPath = Join-Path $PSScriptRoot "node_modules\.pnpm\electron@42.3.3\node_modules\electron\dist\electron.exe"
+    if (Test-Path $electronPath) {
+        $proc2 = Start-Process -FilePath $electronPath -ArgumentList "`"$(Join-Path $PSScriptRoot 'electron\main.cjs')`" --display" -PassThru
+        Set-Content -Path (Join-Path $LOCK_DIR "display.lock") -Value $proc2.Id -NoNewline
+        Write-Host "  -> Display (Electron) acildi - tam ekran, otomatik ses" -ForegroundColor Green
+    } else {
+        Write-Host "  -> Electron bulunamadi, Edge ile aciliyor..." -ForegroundColor Yellow
         $dex = $extendedScreen.Bounds.X
         $dey = $extendedScreen.Bounds.Y
         $dew = $extendedScreen.Bounds.Width
         $deh = $extendedScreen.Bounds.Height
-        $proc2 = Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$tempProfileDisplay`" $EDGE_FLAGS --new-window --kiosk --edge-kiosk-type=fullscreen --window-position=$dex,$dey --window-size=$dew,$deh `"$displayUrl`"" -PassThru
+        $proc2 = Start-Process -FilePath $browserPath -ArgumentList "--user-data-dir=`"$env:TEMP\siramatik-display-profile`" $EDGE_FLAGS --new-window --kiosk --edge-kiosk-type=fullscreen --window-position=$dex,$dey --window-size=$dew,$deh `"$displayUrl`"" -PassThru
         Set-Content -Path (Join-Path $LOCK_DIR "display.lock") -Value $proc2.Id -NoNewline
-        Write-Host "  -> Display (2.Ekran) acildi - tam ekran" -ForegroundColor Green
-    } else {
-        Start-Process "ms-edge:$displayUrl"
-        Set-Lock "display"
-        Write-Host "  -> Display Edge ile acildi (F11 ile tam ekran yapin)" -ForegroundColor Yellow
+        Write-Host "  -> Display (Edge) acildi - tam ekran" -ForegroundColor Green
     }
 } else {
     Write-Host "  -> Display penceresi zaten acik, yenisi acilmadi" -ForegroundColor Cyan

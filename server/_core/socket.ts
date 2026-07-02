@@ -92,32 +92,16 @@ export function setupSocketIO(httpServer: HTTPServer) {
       broadcastSystemState(io);
     });
 
-    // Customer called
-    socket.on(
-      "customer:called",
-      async (data: { ticketNumber: number; bankId: number; entryId: number; phoneNumber?: string }) => {
+    // Customer called (from client socket emit)
+    socket.on("customer:called", async (data) => {
+      try {
         console.log(`[Socket] Customer called: #${data.ticketNumber} -> Bank ${data.bankId}`);
-
-        // Broadcast to all clients
-        io.emit("customer:called", {
-          ticketNumber: data.ticketNumber,
-          bankId: data.bankId,
-          entryId: data.entryId,
-          phoneNumber: data.phoneNumber,
-          timestamp: Date.now(),
-        });
-
-        // Trigger notification sound on display
-        io.emit("notification:play", {
-          type: "customer_called",
-          ticketNumber: data.ticketNumber,
-          bankId: data.bankId,
-        });
-
-        // Update system state
-        broadcastSystemState(io);
+        emitCustomerCalled(data);
+        await broadcastSystemState(io);
+      } catch (e) {
+        console.error("[Socket] Error handling customer:called:", e);
       }
-    );
+    });
 
     // Service completed
     socket.on(

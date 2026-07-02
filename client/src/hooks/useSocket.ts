@@ -64,14 +64,6 @@ export function useSocket(
       window.location.reload();
     });
 
-    // Setup event listeners
-    Object.keys(handlersRef.current).forEach((event) => {
-      socket.on(event, (data) => {
-        const handlers = handlersRef.current.get(event) || [];
-        handlers.forEach((handler) => handler(data));
-      });
-    });
-
     return () => {
       socket.disconnect();
     };

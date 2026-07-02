@@ -10,8 +10,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <script>
+      // Auto-unlock AudioContext early (before React mounts)
+      try {
+        var Ctor = window.AudioContext || window.webkitAudioContext;
+        if (Ctor) {
+          var unlockCtx = new Ctor();
+          window.__audioCtx = unlockCtx;
+          if (unlockCtx.state === "suspended") unlockCtx.resume();
+        }
+      } catch(e) {}
+    </script>
     <style>
-      * {
+      body {
         font-family: 'Space Mono', monospace;
       }
       h1, h2, h3, h4, h5, h6 {

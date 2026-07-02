@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const dgram = require("dgram");
@@ -154,6 +154,17 @@ ipcMain.handle("get-config", () => {
   return loadConfig();
 });
 
+ipcMain.on("play-notification", (_event, filePath) => {
+  const fullPath = path.join(__dirname, "..", "release", "Media", "Notification", filePath);
+  if (!fs.existsSync(fullPath)) return;
+  try {
+    require("child_process").exec(
+      `powershell -NoProfile -c "$wm=(New-Object -ComObject WMPlayer.OCX);$m=$wm.newMedia('${fullPath.replace(/'/g,"''")}');$wm.controls.play();Start-Sleep 1;$wm.controls.stop();$wm.close()"`,
+      { timeout: 5000 }
+    );
+  } catch (_) {}
+});
+
 ipcMain.on("window-minimize", () => {
   if (mainWindow) mainWindow.minimize();
 });
@@ -163,10 +174,69 @@ ipcMain.on("window-close", () => {
   app.exit(0);
 });
 
+function createDisplayWindow(serverUrl) {
+  // Find the extended (non-primary) monitor
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  let target = primary;
+  if (displays.length > 1) {
+    for (const d of displays) {
+      if (d.bounds.x !== primary.bounds.x || d.bounds.y !== primary.bounds.y) {
+        target = d;
+        break;
+      }
+    }
+  }
+  const b = target.bounds;
+
+  const displayWindow = new BrowserWindow({
+    x: b.x,
+    y: b.y,
+    width: b.width,
+    height: b.height,
+    frame: false,
+    autoHideMenuBar: true,
+    fullscreen: false,
+    webPreferences: {
+      autoplayPolicy: "no-user-gesture-required",
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  let url = serverUrl.replace(/\/+$/, "");
+  if (!/:\d+$/.test(url)) {
+    url += ":3000";
+  }
+  url += "/display";
+
+  displayWindow.loadURL(url);
+
+  // Open DevTools for debugging
+  displayWindow.webContents.openDevTools({ mode: "detach" });
+
+  displayWindow.once("ready-to-show", () => {
+    displayWindow.setFullScreen(true);
+    displayWindow.focus();
+  });
+
+  displayWindow.on("closed", () => {
+    if (discoverySocket) {
+      discoverySocket.close();
+      discoverySocket = null;
+    }
+    app.exit(0);
+  });
+}
+
 app.whenReady().then(() => {
+  const isDisplay = process.argv.includes("--display");
   startDiscovery();
   const config = loadConfig();
-  if (config && config.serverUrl) {
+    if (isDisplay) {
+    createDisplayWindow("http://localhost:3000");
+  } else if (config && config.serverUrl) {
     createMainWindow(config.serverUrl);
   } else {
     createConfigWindow();

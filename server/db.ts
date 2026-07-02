@@ -433,6 +433,13 @@ async function runMigrations(): Promise<void> {
         console.log("[Database] Added queue_date column");
       } catch (e) { console.error("[Database] Failed to add queue_date:", e); }
     }
+    if (!sysColNames.includes("theme_font_size")) {
+      try {
+        const stmt = _db.prepare("ALTER TABLE system_config ADD COLUMN theme_font_size INTEGER DEFAULT 16");
+        stmt.step(); stmt.free();
+        console.log("[Database] Added theme_font_size column");
+      } catch (e) { console.error("[Database] Failed to add theme_font_size:", e); }
+    }
 
     // Add bank_id and operator_id columns to queue_entries if not exists
     const qeCols = executeQuery("PRAGMA table_info(queue_entries)");
@@ -1093,6 +1100,7 @@ export async function getSystemConfig(): Promise<SystemConfig | null> {
       themeHeader: result[0].theme_header || "#ff006e",
       themeSubheader: result[0].theme_subheader || "#00d9ff",
       themeFont: result[0].theme_font || "Courier New, monospace",
+      themeFontSize: result[0].theme_font_size ?? 16,
       themeBorder: result[0].theme_border || "#1b98a0",
       announcements: result[0].announcements || "",
       tickerSpeed: result[0].ticker_speed ?? 8,
@@ -1180,6 +1188,10 @@ export async function updateSystemConfig(config: Partial<SystemConfig>): Promise
     if (config.themeFont !== undefined) {
       updates.push("theme_font = ?");
       values.push(config.themeFont);
+    }
+    if (config.themeFontSize !== undefined) {
+      updates.push("theme_font_size = ?");
+      values.push(config.themeFontSize);
     }
     if (config.themeBorder !== undefined) {
       updates.push("theme_border = ?");

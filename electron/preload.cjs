@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("discovered", handler);
     return () => ipcRenderer.removeListener("discovered", handler);
   },
+  // Display-specific: play notification sound via main process (no autoplay restrictions)
+  playNotification: (filePath) => ipcRenderer.send("play-notification", filePath),
 });

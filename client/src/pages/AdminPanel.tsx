@@ -142,6 +142,7 @@ export default function AdminPanel() {
   const [themeHeader, setThemeHeader] = useState("#1b98a0");
   const [themeSubheader, setThemeSubheader] = useState("#415a77");
   const [themeFont, setThemeFont] = useState("Segoe UI, sans-serif");
+  const [themeFontSize, setThemeFontSize] = useState(16);
   const [themeBorder, setThemeBorder] = useState("#1b98a0");
   const [weatherCity, setWeatherCity] = useState("");
   const [announcements, setAnnouncements] = useState("");
@@ -186,6 +187,7 @@ export default function AdminPanel() {
       setThemeHeader(config.themeHeader || "#1b98a0");
       setThemeSubheader(config.themeSubheader || "#415a77");
       setThemeFont(config.themeFont || "Segoe UI, sans-serif");
+      setThemeFontSize(config.themeFontSize ?? 16);
       setThemeBorder(config.themeBorder || "#1b98a0");
       setWeatherCity(config.weatherCity || "");
       setAnnouncements(config.announcements || "");
@@ -547,6 +549,13 @@ export default function AdminPanel() {
                   <option value="Verdana, sans-serif">Verdana</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground/80">Font Boyutu (px)</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={10} max={60} value={themeFontSize} onChange={(e) => setThemeFontSize(parseInt(e.target.value))} className="flex-1 accent-primary" />
+                  <span className="w-10 text-center font-black text-sm">{themeFontSize}px</span>
+                </div>
+              </div>
             </div>
             {/* Kiosk / Ticker Settings */}
             <h3 className="text-lg font-black neon-purple mt-6 mb-4" style={{ textShadow: "0 0 10px currentColor" }}>KİOSK & TİCKER AYARLARI</h3>
@@ -585,6 +594,7 @@ export default function AdminPanel() {
                   themeHeader,
                   themeSubheader,
                   themeFont,
+                  themeFontSize,
                   themeBorder,
                   weatherCity,
                   announcements,
@@ -631,11 +641,14 @@ export default function AdminPanel() {
                     onClick={() => {
                       const ns = soundSettings.notificationSound || "chime";
                       if (ns === "chime") {
-                        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                        const now = ctx.currentTime;
-                        const o = ctx.createOscillator();
-                        const g = ctx.createGain();
-                        o.connect(g); g.connect(ctx.destination);
+                        const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+                        const ctx = window.__audioCtx;
+                        const ac = (ctx && ctx.state !== "closed") ? ctx : new Ctor();
+                        if (ac.state === "suspended") ac.resume();
+                        const now = ac.currentTime;
+                        const o = ac.createOscillator();
+                        const g = ac.createGain();
+                        o.connect(g); g.connect(ac.destination);
                         o.frequency.setValueAtTime(880, now);
                         g.gain.setValueAtTime(0.15, now);
                         g.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
