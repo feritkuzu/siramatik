@@ -620,12 +620,39 @@ export default function AdminPanel() {
               </div>
               <div>
                 <label className="block text-sm font-bold mb-1 text-foreground/80">Bildirim Sesi</label>
-                <select value={soundSettings.notificationSound || "chime"} onChange={(e) => setSoundSettings({ ...soundSettings, notificationSound: e.target.value })} className="w-full h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2">
-                  <option value="chime">🔔 Ding-Dong (Varsayılan)</option>
-                  {notificationSounds?.map((s: any) => (
-                    <option key={s.name} value={s.name}>{s.name.replace(/soundreality-notification-/g, "").replace(/-/g, " ")}</option>
-                  ))}
-                </select>
+                <div className="flex gap-1">
+                  <select value={soundSettings.notificationSound || "chime"} onChange={(e) => setSoundSettings({ ...soundSettings, notificationSound: e.target.value })} className="flex-1 h-10 border-2 border-primary bg-card text-foreground font-black text-sm p-2">
+                    <option value="chime">🔔 Ding-Dong (Varsayılan)</option>
+                    {notificationSounds?.map((s: any) => (
+                      <option key={s.name} value={s.name}>{s.name.replace(/soundreality-notification-/g, "").replace(/-/g, " ")}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const ns = soundSettings.notificationSound || "chime";
+                      if (ns === "chime") {
+                        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        const now = ctx.currentTime;
+                        const o = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        o.connect(g); g.connect(ctx.destination);
+                        o.frequency.setValueAtTime(880, now);
+                        g.gain.setValueAtTime(0.15, now);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                        o.frequency.setValueAtTime(660, now + 0.25);
+                        g.gain.setValueAtTime(0.15, now + 0.25);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                        o.start(now); o.stop(now + 0.5);
+                      } else {
+                        const a = new Audio(`/notification-sounds/${ns}.mp3`);
+                        a.volume = (soundSettings.soundVolume || 70) / 100;
+                        a.play().catch(() => {});
+                      }
+                    }}
+                    className="h-10 px-3 font-black bg-primary hover:bg-primary/90 text-primary-foreground border-2 border-border cursor-pointer"
+                    title="Önizle"
+                  >▶</button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-bold mb-1 text-foreground/80">Animasyon Tipi</label>
