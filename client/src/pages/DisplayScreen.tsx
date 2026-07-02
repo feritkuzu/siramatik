@@ -178,6 +178,53 @@ export default function DisplayScreen() {
     window.speechSynthesis.speak(utterance);
   }, [bankMap, soundSettings.isEnabled, soundSettings.voiceEnabled, soundSettings.soundVolume]);
 
+  const playNotificationSound = useCallback(() => {
+    if (!soundSettings.isEnabled) return;
+
+    const ns = soundSettings.notificationSound;
+    if (ns && ns !== "chime") {
+      const audio = new Audio(`/notification-sounds/${ns}.mp3`);
+      audio.volume = (soundSettings.soundVolume || 70) / 100;
+      audio.play().catch(() => {});
+      setTimeout(() => {
+        const audio2 = new Audio(`/notification-sounds/${ns}.mp3`);
+        audio2.volume = (soundSettings.soundVolume || 70) / 100;
+        audio2.play().catch(() => {});
+      }, 600);
+      return;
+    }
+
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = audioContext.currentTime;
+    const volume = soundSettings.soundVolume / 100;
+
+    const getFrequencies = () => {
+      switch (soundSettings.soundType) {
+        case "bell": return { ding: 1200, dong: 900 };
+        case "alarm": return { ding: 1000, dong: 600 };
+        case "beep": return { ding: 800, dong: 500 };
+        case "siren": return { ding: 1500, dong: 1000 };
+        case "notification": return { ding: 900, dong: 700 };
+        case "chime":
+        default: return { ding: 880, dong: 660 };
+      }
+    };
+    const { ding, dong } = getFrequencies();
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(ding, now);
+    gain.gain.setValueAtTime(volume * 0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc.frequency.setValueAtTime(dong, now + 0.25);
+    gain.gain.setValueAtTime(volume * 0.3, now + 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    osc.start(now);
+    osc.stop(now + 0.5);
+  }, [soundSettings.isEnabled, soundSettings.notificationSound, soundSettings.soundVolume, soundSettings.soundType]);
+
   // Bildirim kuyruğu: sırayla göster
   useEffect(() => {
     if (callNotification) return;
@@ -234,53 +281,6 @@ export default function DisplayScreen() {
 
     return unsubscribe;
   }, [on]);
-
-  const playNotificationSound = useCallback(() => {
-    if (!soundSettings.isEnabled) return;
-
-    const ns = soundSettings.notificationSound;
-    if (ns && ns !== "chime") {
-      const audio = new Audio(`/notification-sounds/${ns}.mp3`);
-      audio.volume = (soundSettings.soundVolume || 70) / 100;
-      audio.play().catch(() => {});
-      setTimeout(() => {
-        const audio2 = new Audio(`/notification-sounds/${ns}.mp3`);
-        audio2.volume = (soundSettings.soundVolume || 70) / 100;
-        audio2.play().catch(() => {});
-      }, 600);
-      return;
-    }
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const now = audioContext.currentTime;
-    const volume = soundSettings.soundVolume / 100;
-
-    const getFrequencies = () => {
-      switch (soundSettings.soundType) {
-        case "bell": return { ding: 1200, dong: 900 };
-        case "alarm": return { ding: 1000, dong: 600 };
-        case "beep": return { ding: 800, dong: 500 };
-        case "siren": return { ding: 1500, dong: 1000 };
-        case "notification": return { ding: 900, dong: 700 };
-        case "chime":
-        default: return { ding: 880, dong: 660 };
-      }
-    };
-    const { ding, dong } = getFrequencies();
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.connect(gain);
-    gain.connect(audioContext.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(ding, now);
-    gain.gain.setValueAtTime(volume * 0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-    osc.frequency.setValueAtTime(dong, now + 0.25);
-    gain.gain.setValueAtTime(volume * 0.3, now + 0.25);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-    osc.start(now);
-    osc.stop(now + 0.5);
-  }, [soundSettings.isEnabled, soundSettings.notificationSound, soundSettings.soundVolume, soundSettings.soundType]);
 
   const getPriorityLabel = (priorityType?: string) => {
     switch (priorityType) {
