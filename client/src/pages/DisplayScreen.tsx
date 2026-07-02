@@ -417,49 +417,47 @@ export default function DisplayScreen() {
       <div className="flex-1 flex flex-col md:flex-row gap-6 p-6 overflow-hidden">
         {/* Left - Called Tickets List */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="border-2 border-border p-4 mb-4 flex items-center gap-4">
-            <h2 className="text-2xl font-black neon-pink flex-1">ÇAĞRILAN</h2>
-            <span className="text-sm text-foreground/60">{connectedBankIds?.length || 0} Aktif Banko</span>
+          <div className="border-b-2 border-border pb-2 mb-3 flex items-center gap-4">
+            <h2 className="text-xl font-black neon-pink flex-1">ÇAĞRILAN</h2>
+            <span className="text-xs text-foreground/60">{connectedBankIds?.length || 0} Aktif Banko</span>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-2">
+          <div className="flex-1 overflow-y-auto">
             {[...calledTickets]
               .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0))
               .map((ticket) => (
               <div key={`${ticket.ticketNumber}-${ticket.bankId}`}
-                className={`border-2 p-3 flex items-center gap-3 transition-all duration-300 ${
-                  ticket.completed ? "border-secondary bg-card/20 opacity-40" : ticket.isPriority ? "border-yellow-400 bg-yellow-400/10" : "border-border bg-card/30"
-                }`}>
-                <div className={`text-3xl font-black w-16 text-center ${ticket.completed ? "text-foreground/40" : "neon-pink"}`}>
+                className={`flex items-center gap-3 py-1.5 ${ticket.completed ? "opacity-40" : ""}`}>
+                <div className={`text-xl font-black w-12 text-right ${ticket.completed ? "text-foreground/40" : "neon-pink"}`}>
                   {ticket.ticketNumber}
                 </div>
-                <div className="text-lg font-black neon-blue flex-1">
+                <div className={`text-base font-bold flex-1 ${ticket.completed ? "text-foreground/40" : "neon-blue"}`}>
                   BANKO {bankMap[ticket.bankId] ?? ticket.bankId}
                 </div>
                 {ticket.isPriority && !ticket.completed && (
                   <span className="text-xs text-yellow-400">{getPriorityLabel(ticket.priorityType)}</span>
                 )}
-                {ticket.completed && <span className="text-xs text-green-400">✓ TAMAM</span>}
+                {ticket.completed && <span className="text-xs text-green-400">✓</span>}
               </div>
             ))}
             {calledTickets.length === 0 && (
-              <div className="flex items-center justify-center h-full text-xl text-foreground/40">Bekleniyor...</div>
+              <div className="flex items-center justify-center h-full text-lg text-foreground/40">Bekleniyor...</div>
             )}
           </div>
         </div>
 
         {/* Right - Waiting Queue */}
-        <div className="w-full md:w-72 flex flex-col min-h-0">
-          <div className="border-2 border-secondary p-4 mb-4">
-            <h2 className="text-xl font-black neon-blue">BEKLEYEN</h2>
-            <p className="text-xs text-foreground/60 mt-1">{waitingQueue.length} kişi</p>
+        <div className="w-full md:w-64 flex flex-col min-h-0">
+          <div className="border-b-2 border-secondary pb-2 mb-3">
+            <h2 className="text-lg font-black neon-blue">BEKLEYEN</h2>
+            <p className="text-xs text-foreground/60">{waitingQueue.length} kişi</p>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-1.5">
-            {waitingQueue.slice(0, 15).map((entry, index) => (
-              <div key={entry.id} className={`border p-2 flex items-center gap-2 ${entry.isPriority ? "border-yellow-400 bg-yellow-400/10" : "border-secondary bg-card/30"}`}>
-                <div className="text-lg font-black text-foreground/60 w-8 text-center">{index + 1}</div>
-                <div className="text-lg font-bold neon-blue flex-1">#{entry.ticketNumber}</div>
+          <div className="flex-1 overflow-y-auto">
+            {waitingQueue.map((entry, index) => (
+              <div key={entry.id} className="flex items-center gap-2 py-1">
+                <div className="text-sm font-black text-foreground/50 w-6 text-right shrink-0">{index + 1}</div>
+                <div className="text-base font-bold neon-blue flex-1">#{entry.ticketNumber}</div>
                 {entry.isPriority && entry.priorityType && (
-                  <span className="text-xs text-yellow-400">
+                  <span className="text-[10px] text-yellow-400 shrink-0">
                     {entry.priorityType === "elderly" ? "Yaşlı" : entry.priorityType === "disabled" ? "Engelli" : "Hamile"}
                   </span>
                 )}
