@@ -39,28 +39,51 @@ function New-ServerPackage {
         Pop-Location
     }
 
-    # Compiled server (dist/index.js is the bundled server)
+    # 1) Copy package.json first (needed for npm install)
+    Copy-Item -Path "$PROJECT_DIR\package.json" -Destination "$pkgDir\" -Force
+
+    # 2) Download & extract Node.js portable (cached)
+    $nodeVersion = "v22.14.0"
+    $nodeZip = "$TEMP_DIR\node-$nodeVersion-win-x64.zip"
+    $nodeUrl = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-win-x64.zip"
+    if (-not (Test-Path $nodeZip)) {
+        Write-Host "  Node.js $nodeVersion indiriliyor..." -ForegroundColor Yellow
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeZip -UseBasicParsing
+    }
+    $nodeDir = "$pkgDir\node"
+    if (Test-Path "$TEMP_DIR\node-extract") { Remove-Item "$TEMP_DIR\node-extract" -Recurse -Force }
+    Write-Host "  Node.js ayikleniyor..." -ForegroundColor Yellow
+    Expand-Archive -Path $nodeZip -DestinationPath "$TEMP_DIR\node-extract" -Force
+    New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
+    Move-Item -Path "$TEMP_DIR\node-extract\node-$nodeVersion-win-x64\*" -Destination $nodeDir -Force
+    Remove-Item "$TEMP_DIR\node-extract" -Recurse -Force
+
+    # 3) npm install (production only) using bundled Node.js
+    Write-Host "  npm install calistiriliyor (production)..." -ForegroundColor Yellow
+    $npmCli = "$nodeDir\node_modules\npm\bin\npm-cli.js"
+    $oldPath = $env:Path
+    $env:Path = "$nodeDir;$env:Path"
+    Push-Location $pkgDir
+    & "$nodeDir\node.exe" $npmCli install --production --legacy-peer-deps --ignore-scripts 2>&1 | ForEach-Object { Write-Host "    $_" }
+    Pop-Location
+    $env:Path = $oldPath
+
+    # 4) Copy remaining files
     New-Item -ItemType Directory -Path "$pkgDir\server" -Force | Out-Null
     Copy-Item -Path "$PROJECT_DIR\dist\index.js" -Destination "$pkgDir\server\index.js" -Force
-    
-    # Client build
     if (Test-Path "$PROJECT_DIR\dist\public") {
         Copy-Item -Path "$PROJECT_DIR\dist\public" -Destination "$pkgDir\client" -Recurse -Force
     }
-    # Shared files (needed by some server modules)
     Copy-Item -Path "$PROJECT_DIR\shared" -Destination "$pkgDir\shared" -Recurse -Force
-    # Media files
     if (Test-Path "$PROJECT_DIR\release") {
         Copy-Item -Path "$PROJECT_DIR\release" -Destination "$pkgDir\release" -Recurse -Force
     }
-    # Root files
-    Copy-Item -Path "$PROJECT_DIR\package.json" -Destination "$pkgDir\" -Force
     if (Test-Path "$PROJECT_DIR\siramatik.db") {
         Copy-Item -Path "$PROJECT_DIR\siramatik.db" -Destination "$pkgDir\" -Force
     }
-    # Setup script
     Copy-Item -Path "$INSTALLER_DIR\server-setup.bat" -Destination "$pkgDir\setup.bat" -Force
-    
+
     return $pkgDir
 }
 

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
 using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
@@ -14,7 +13,6 @@ class ServerInstallerForm : Form {
   private ProgressBar progressBar;
   private Label statusLabel, titleLabel, subtitleLabel;
   private RichTextBox logBox;
-  private bool nodeMissing, internetOk;
   private bool installing;
   private string extractDir;
   private byte[] exeData;
@@ -35,7 +33,7 @@ class ServerInstallerForm : Form {
       Size = new Size(520, 36), TextAlign = ContentAlignment.MiddleCenter
     };
     subtitleLabel = new Label {
-      Text = "Sıra yönetim sistemi sunucu kurulumu",
+      Text = "Hepsi bir arada — İnternet gerekmez",
       ForeColor = Color.Gray, Location = new Point(20, 52),
       Size = new Size(520, 20), TextAlign = ContentAlignment.MiddleCenter
     };
@@ -78,10 +76,10 @@ class ServerInstallerForm : Form {
     Controls.AddRange(new Control[] { titleLabel, subtitleLabel, pathLabel, pathBox,
       browseBtn, progressBar, statusLabel, logBox, installBtn, cancelBtn });
 
-    Load += async (s, e) => await CheckPrerequisites();
+    Load += (s, e) => CheckPrerequisites();
   }
 
-  async Task CheckPrerequisites() {
+  void CheckPrerequisites() {
     Log("Ön koşullar kontrol ediliyor...");
 
     // Admin check
@@ -93,20 +91,6 @@ class ServerInstallerForm : Form {
       }
     } catch { Fail("Yönetici yetkisi gerekli!"); return; }
     Log("[OK] Yönetici yetkisi mevcut");
-
-    // Node.js check
-    string nodePath = FindNode();
-    nodeMissing = (nodePath == null);
-    if (!nodeMissing) {
-      Log("[OK] Node.js mevcut: " + nodePath);
-    } else {
-      Log("[!] Node.js bulunamadı, kurulum sırasında indirilecek");
-    }
-
-    // Internet check
-    internetOk = await CheckInternet();
-    Log(internetOk ? "[OK] İnternet bağlantısı var" : "[!] İnternet yok");
-    if (nodeMissing && !internetOk) { Fail("Node.js gerekli ama internet bağlantısı yok!"); return; }
 
     // Port check
     try {
@@ -125,28 +109,8 @@ class ServerInstallerForm : Form {
     } catch { }
     Log("[OK] 3000 portu müsait");
 
+    Log("[OK] Node.js paket içinde hazır");
     installBtn.Enabled = true;
-  }
-
-  string FindNode() {
-    string pathEnv = Environment.GetEnvironmentVariable("PATH");
-    if (pathEnv != null) {
-      string[] dirs = pathEnv.Split(';');
-      foreach (string d in dirs) {
-        try {
-          string trimmed = d.Trim('"');
-          if (File.Exists(Path.Combine(trimmed, "node.exe"))) return Path.Combine(trimmed, "node.exe");
-        } catch { }
-      }
-    }
-    string[] checks = { @"C:\Program Files\nodejs\node.exe", @"C:\Program Files (x86)\nodejs\node.exe" };
-    foreach (string c in checks) if (File.Exists(c)) return c;
-    return null;
-  }
-
-  async Task<bool> CheckInternet() {
-    try { using (var wc = new WebClient()) { await wc.DownloadDataTaskAsync("http://google.com"); return true; } }
-    catch { return false; }
   }
 
   async void InstallClick(object sender, EventArgs e) {
@@ -166,37 +130,32 @@ class ServerInstallerForm : Form {
       zipStart = exeData.Length - 4 - zipSize;
       extractDir = Path.Combine(Path.GetTempPath(), "SiramatikSetup");
 
-      // Download Node.js if needed
-      if (nodeMissing && internetOk) {
-        UpdateStatus("Node.js indiriliyor...", 5);
-        await DownloadNodeJs(installDir);
-      }
-
-      // Extract ZIP
-      UpdateStatus("Dosyalar çıkarılıyor...", 20);
+      // Extract ZIP directly to install directory
+      UpdateStatus("Dosyalar çıkarılıyor...", 10);
       if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true);
       Directory.CreateDirectory(extractDir);
       ExtractZip();
       Log("[OK] Dosyalar çıkarıldı");
 
-      // Copy files
+      // Copy ALL files including bundled Node.js and node_modules
       UpdateStatus("Dosyalar kopyalanıyor...", 40);
-      CopyDir(Path.Combine(extractDir, "server"), Path.Combine(installDir, "server"));
-      CopyDir(Path.Combine(extractDir, "client"), Path.Combine(installDir, "client"));
-      CopyDir(Path.Combine(extractDir, "shared"), Path.Combine(installDir, "shared"));
-      string releaseSrc = Path.Combine(extractDir, "release");
-      if (Directory.Exists(releaseSrc)) CopyDir(releaseSrc, Path.Combine(installDir, "release"));
-      string pkgSrc = Path.Combine(extractDir, "package.json");
-      if (File.Exists(pkgSrc)) File.Copy(pkgSrc, Path.Combine(installDir, "package.json"), true);
-      Log("[OK] Dosyalar kopyalandı");
-
-      // npm install
-      UpdateStatus("Bağımlılıklar yükleniyor...", 60);
-      await RunNpmInstall(installDir);
-      Log("[OK] Bağımlılıklar yüklendi");
+      string[] copyDirs = { "server", "client", "shared", "release", "node" };
+      foreach (string dir in copyDirs) {
+        string src = Path.Combine(extractDir, dir);
+        if (Directory.Exists(src)) CopyDir(src, Path.Combine(installDir, dir));
+      }
+      // Copy node_modules (if present)
+      string nmSrc = Path.Combine(extractDir, "node_modules");
+      if (Directory.Exists(nmSrc)) CopyDir(nmSrc, Path.Combine(installDir, "node_modules"));
+      // Copy root files
+      foreach (string file in new[] { "package.json", "siramatik.db" }) {
+        string f = Path.Combine(extractDir, file);
+        if (File.Exists(f)) File.Copy(f, Path.Combine(installDir, file), true);
+      }
+      Log("[OK] Tüm dosyalar kopyalandı");
 
       // Configure
-      UpdateStatus("Yapılandırma yapılıyor...", 85);
+      UpdateStatus("Yapılandırma yapılıyor...", 70);
       CreateEnvFile(installDir);
       CreateStartupFiles(installDir);
       CreateDesktopShortcut(installDir);
@@ -212,6 +171,9 @@ class ServerInstallerForm : Form {
       Log("Admin: http://localhost:3000/admin");
       Log("Başlat: " + installDir + @"\baslat.bat");
       Log("========================================");
+      Log("");
+      Log("NOT: İnternet gerekmeden kurulum yapıldı.");
+      Log("Tüm bileşenler paket içinde hazır.");
       installBtn.Text = "TAMAM";
       installBtn.Click -= InstallClick;
       installBtn.Click += (s2, e2) => Close();
@@ -222,30 +184,6 @@ class ServerInstallerForm : Form {
       installing = false;
       try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true); } catch { }
     }
-  }
-
-  async Task DownloadNodeJs(string installDir) {
-    string url = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip";
-    string zipPath = Path.Combine(Path.GetTempPath(), "node-download.zip");
-
-    using (var wc = new WebClient()) {
-      wc.DownloadProgressChanged += (o, e) => {
-        int pct = 5 + (int)(e.ProgressPercentage * 0.12);
-        progressBar.Value = Math.Min(pct, 20);
-        statusLabel.Text = "Node.js indiriliyor... %" + e.ProgressPercentage;
-      };
-      await wc.DownloadFileTaskAsync(url, zipPath);
-    }
-    Log("[OK] Node.js indirildi");
-
-    string nodeDir = Path.Combine(installDir, "node");
-    Directory.CreateDirectory(nodeDir);
-    ZipFile.ExtractToDirectory(zipPath, Path.Combine(Path.GetTempPath(), "node-extract"));
-    string extracted = Path.Combine(Path.GetTempPath(), "node-extract", "node-v22.14.0-win-x64");
-    if (Directory.Exists(extracted)) CopyDir(extracted, nodeDir);
-    File.Delete(zipPath);
-    try { Directory.Delete(Path.Combine(Path.GetTempPath(), "node-extract"), true); } catch { }
-    Log("[OK] Node.js v22.14.0 hazır");
   }
 
   void ExtractZip() {
@@ -266,53 +204,11 @@ class ServerInstallerForm : Form {
         }
         done++;
         if (done % 20 == 0) {
-          progressBar.Value = 20 + (done * 15 / Math.Max(total, 1));
+          int pct = 10 + (done * 25 / Math.Max(total, 1));
+          progressBar.Value = Math.Min(pct, 35);
           Application.DoEvents();
         }
       }
-    }
-  }
-
-  async Task RunNpmInstall(string installDir) {
-    string npmPath = FindNode();
-    bool useBundled = false;
-    string bundledNode = Path.Combine(installDir, "node", "node.exe");
-    if (File.Exists(bundledNode)) { npmPath = bundledNode; useBundled = true; }
-
-    if (npmPath == null) { Log("[!] Node.js bulunamadı, npm atlanıyor"); return; }
-
-    string args;
-    if (useBundled) {
-      string npmCli = Path.Combine(installDir, "node", "node_modules", "npm", "bin", "npm-cli.js");
-      args = "\"" + npmCli + "\" install --production --legacy-peer-deps --ignore-scripts";
-    } else {
-      npmPath = "cmd.exe";
-      args = "/c npm install --production --legacy-peer-deps --ignore-scripts";
-    }
-
-    var psi = new ProcessStartInfo {
-      FileName = npmPath, Arguments = args, WorkingDirectory = installDir,
-      UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-      CreateNoWindow = true,
-    };
-    if (useBundled) {
-      psi.EnvironmentVariables["PATH"] = Path.GetDirectoryName(npmPath) + ";" + Environment.GetEnvironmentVariable("PATH");
-    }
-
-    var tcs = new TaskCompletionSource<bool>();
-    using (var proc = new Process { StartInfo = psi, EnableRaisingEvents = true }) {
-      proc.OutputDataReceived += (o, e) => { if (e.Data != null) { Log(e.Data); Application.DoEvents(); } };
-      proc.ErrorDataReceived += (o, e) => {
-        if (e.Data != null && !e.Data.Contains("deprecated") && !e.Data.Contains("warn") && !e.Data.Contains("npm notice"))
-          { Log(e.Data); Application.DoEvents(); }
-      };
-      proc.Exited += (o, e) => tcs.TrySetResult(true);
-      proc.Start();
-      proc.BeginOutputReadLine();
-      proc.BeginErrorReadLine();
-      await Task.Run(() => tcs.Task.Wait(600000));
-      proc.WaitForExit();
-      if (proc.ExitCode != 0) throw new Exception("npm install başarısız (exit code: " + proc.ExitCode + ")");
     }
   }
 
