@@ -21,6 +21,7 @@ function saveConfig(serverUrl) {
 }
 
 let mainWindow = null;
+let displayWindow = null;
 let configWindow = null;
 let discoveryTimer = null;
 
@@ -175,6 +176,14 @@ ipcMain.on("window-close", () => {
 });
 
 function createDisplayWindow(serverUrl) {
+  if (displayWindow && !displayWindow.isDestroyed()) {
+    let url = serverUrl.replace(/\/+$/, "");
+    if (!/:\d+$/.test(url)) url += ":3000";
+    displayWindow.loadURL(url + "/display");
+    displayWindow.focus();
+    return;
+  }
+
   // Find the extended (non-primary) monitor
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
@@ -189,7 +198,7 @@ function createDisplayWindow(serverUrl) {
   }
   const b = target.bounds;
 
-  const displayWindow = new BrowserWindow({
+  displayWindow = new BrowserWindow({
     x: b.x,
     y: b.y,
     width: b.width,
@@ -206,15 +215,9 @@ function createDisplayWindow(serverUrl) {
   });
 
   let url = serverUrl.replace(/\/+$/, "");
-  if (!/:\d+$/.test(url)) {
-    url += ":3000";
-  }
+  if (!/:\d+$/.test(url)) url += ":3000";
   url += "/display";
-
   displayWindow.loadURL(url);
-
-  // Open DevTools for debugging
-  displayWindow.webContents.openDevTools({ mode: "detach" });
 
   displayWindow.once("ready-to-show", () => {
     displayWindow.setFullScreen(true);
@@ -222,6 +225,7 @@ function createDisplayWindow(serverUrl) {
   });
 
   displayWindow.on("closed", () => {
+    displayWindow = null;
     if (discoverySocket) {
       discoverySocket.close();
       discoverySocket = null;
@@ -230,7 +234,47 @@ function createDisplayWindow(serverUrl) {
   });
 }
 
+// Prevent multiple instances — reload existing windows instead
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const isDisplay = process.argv.includes("--display");
+    const config = loadConfig();
+    if (isDisplay && displayWindow && !displayWindow.isDestroyed()) {
+      displayWindow.loadURL(displayWindow.webContents.getURL());
+      displayWindow.focus();
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(mainWindow.webContents.getURL());
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(() => {
+  // Suppress CSP unsafe-eval warning (required by Vite HMR in dev)
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
+
+  // Register CSP header once for all windows loading from localhost
+  const cspFilter = { urls: ["http://localhost/*", "http://127.0.0.1/*"] };
+  const cspValue =
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "connect-src 'self' ws: http://localhost:* http://127.0.0.1:*; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob:; " +
+    "media-src 'self' data: blob:;";
+  require("electron").session.defaultSession.webRequest.onHeadersReceived(cspFilter, (details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [cspValue],
+      },
+    });
+  });
+
   const isDisplay = process.argv.includes("--display");
   startDiscovery();
   const config = loadConfig();

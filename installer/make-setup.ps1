@@ -94,8 +94,21 @@ function New-SfxExe {
     $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
     Write-Host "  ZIP boyutu: $zipSize MB" -ForegroundColor Gray
     
-    # C# self-extractor stub - manually extracts ZIP (C# 5 compatible)
-    $csCode = @'
+    # Select stub source based on package type
+    if ($Name -eq "Server") {
+        $csFile = "$INSTALLER_DIR\ServerInstaller.cs"
+        $target = "winexe"
+        $refs = @(
+            "-reference:System.dll",
+            "-reference:System.Windows.Forms.dll",
+            "-reference:System.Drawing.dll",
+            "-reference:System.IO.Compression.dll",
+            "-reference:System.IO.Compression.FileSystem.dll",
+            "-reference:System.Net.Http.dll"
+        )
+    } else {
+        # Console stub for Bank package
+        $csCode = @'
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -106,64 +119,41 @@ class Program {
     static void Main() {
         string exePath = Assembly.GetExecutingAssembly().Location;
         string extractDir = Path.Combine(Path.GetTempPath(), "SiramatikSetup");
-        
-        Console.WriteLine("Siramatik Kurulumu");
-        Console.WriteLine("Dosyalar aciliyor...");
-        
+        Console.WriteLine("Siramatik Banko Kurulumu");
         try {
             byte[] buf = File.ReadAllBytes(exePath);
-            int zipStart = FindZipStart(buf);
-            if (zipStart < 0) { Console.WriteLine("Hata: ZIP bulunamadi!"); Console.ReadKey(); return; }
-            
+            int zipSize = BitConverter.ToInt32(buf, buf.Length - 4);
+            int zipStart = buf.Length - 4 - zipSize;
             if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true);
             Directory.CreateDirectory(extractDir);
-            
-            using (MemoryStream ms = new MemoryStream(buf, zipStart, buf.Length - zipStart))
-            using (ZipArchive archive = new ZipArchive(ms)) {
-                foreach (ZipArchiveEntry entry in archive.Entries) {
-                    string destPath = Path.Combine(extractDir, entry.FullName);
-                    if (string.IsNullOrEmpty(entry.Name)) {
-                        Directory.CreateDirectory(destPath);
-                    } else {
-                        Directory.CreateDirectory(Path.GetDirectoryName(destPath));
-                        using (Stream src = entry.Open())
-                        using (FileStream dst = File.Create(destPath)) {
-                            src.CopyTo(dst);
-                        }
-                    }
+            using (var ms = new MemoryStream(buf, zipStart, zipSize)) {
+              using (var archive = new ZipArchive(ms)) {
+                foreach (var entry in archive.Entries) {
+                  string dest = Path.Combine(extractDir, entry.FullName);
+                  if (string.IsNullOrEmpty(entry.Name)) { Directory.CreateDirectory(dest); }
+                  else {
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                    using (var src = entry.Open()) { using (var dst = File.Create(dest)) { src.CopyTo(dst); } }
+                  }
                 }
+              }
             }
-            
             string setupBat = Path.Combine(extractDir, "setup.bat");
-            if (File.Exists(setupBat)) {
-                Process.Start("cmd.exe", "/c \"" + setupBat + "\"").WaitForExit();
-            }
-        } catch (Exception ex) {
-            Console.WriteLine("Hata: " + ex.Message);
-            Console.ReadKey();
-        } finally {
-            try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true); } catch {}
-        }
-    }
-    
-    static int FindZipStart(byte[] data) {
-        for (int i = data.Length - 4; i >= 0; i--) {
-            if (data[i] == 0x50 && data[i+1] == 0x4B && data[i+2] == 0x03 && data[i+3] == 0x04)
-                return i;
-        }
-        return -1;
+            if (File.Exists(setupBat)) Process.Start("cmd.exe", "/c \"" + setupBat + "\"").WaitForExit();
+        } catch (Exception ex) { Console.WriteLine("Hata: " + ex.Message); Console.ReadKey(); }
+        finally { try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true); } catch {} }
     }
 }
 '@
+        $csFile = "$TEMP_DIR\$Name-stub.cs"
+        Set-Content -Path $csFile -Value $csCode -Encoding ASCII
+        $target = "exe"
+        $refs = @("-reference:System.dll", "-reference:System.IO.Compression.dll")
+    }
     
-    # Compile
-    $csFile = "$TEMP_DIR\$Name-stub.cs"
     $stubExe = "$TEMP_DIR\$Name-stub.exe"
-    Set-Content -Path $csFile -Value $csCode -Encoding ASCII
-    
-    $refs = @("-reference:System.dll", "-reference:System.IO.Compression.dll")
-    $output = & $CSC -target:exe "-out:$stubExe" $refs "$csFile" 2>&1
-    Remove-Item $csFile -Force -ErrorAction SilentlyContinue
+    $output = & $CSC -nologo -target:$target "-out:$stubExe" $refs "$csFile" 2>&1
+    if ($Name -ne "Server") { Remove-Item $csFile -Force -ErrorAction SilentlyContinue }
     
     if (-not (Test-Path $stubExe)) {
         Write-Host "  [!] Derleme basarisiz" -ForegroundColor Red
@@ -171,14 +161,16 @@ class Program {
         return $false
     }
     
-    # Append ZIP to stub
+    # Append ZIP to stub, plus 4-byte ZIP size footer
     Write-Host "  Self-extracting .exe olusturuluyor..." -ForegroundColor Yellow
     $stubBytes = [System.IO.File]::ReadAllBytes($stubExe)
     $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
+    $sizeBytes = [System.BitConverter]::GetBytes([int]$zipBytes.Length)
     
-    $combined = New-Object byte[] ($stubBytes.Length + $zipBytes.Length)
+    $combined = New-Object byte[] ($stubBytes.Length + $zipBytes.Length + 4)
     [Buffer]::BlockCopy($stubBytes, 0, $combined, 0, $stubBytes.Length)
     [Buffer]::BlockCopy($zipBytes, 0, $combined, $stubBytes.Length, $zipBytes.Length)
+    [Buffer]::BlockCopy($sizeBytes, 0, $combined, $stubBytes.Length + $zipBytes.Length, 4)
     
     [System.IO.File]::WriteAllBytes($exePath, $combined)
     Remove-Item $stubExe -Force -ErrorAction SilentlyContinue

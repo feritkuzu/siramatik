@@ -178,7 +178,7 @@ siramatik/
 Sorun yaşarsanız:
 1. Browser console'u kontrol et (F12)
 2. Terminal output'unu kontrol et
-3. `.manus-logs/` klasöründeki log dosyalarını kontrol et
+3. Log dosyalarını kontrol et
 
 ## Sonraki Adımlar
 

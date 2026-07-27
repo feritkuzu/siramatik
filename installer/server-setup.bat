@@ -3,7 +3,7 @@ title Siramatik Sunucu Kurulumu
 color 0B
 setlocal enabledelayedexpansion
 
-set NODE_VERSION=v20.18.0
+set NODE_VERSION=v22.14.0
 set NODE_URL=https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip
 
 echo ============================================
@@ -121,9 +121,10 @@ echo --------------------------------------------
 echo Bu islem internet gerektirir, bir kac dakika surebilir...
 cd /d "%INSTALL_DIR%"
 if exist "!NODE_CMD!" (
-    "!NODE_CMD!" "!INSTALL_DIR!\node\node_modules\npm\bin\npm-cli.js" install --production
+    set "PATH=!INSTALL_DIR!\node;!PATH!"
+    "!NODE_CMD!" "!INSTALL_DIR!\node\node_modules\npm\bin\npm-cli.js" install --production --legacy-peer-deps --ignore-scripts
 ) else (
-    call npm install --production
+    call npm install --production --legacy-peer-deps --ignore-scripts
 )
 if %errorlevel% neq 0 (
     echo [!] Bagimliliklar yuklenemedi!
@@ -147,6 +148,7 @@ echo @echo off
 echo cd /d "%INSTALL_DIR%"
 echo set NODE_ENV=production
 echo set PATH=%%CD%%\node;%%PATH%%
+echo for /f "tokens=*" %%%%a in ('type .env') do set "%%%%a" 2^>nul
 echo start /B %NODE_PATH% server\index.js
 echo echo Siramatik sunucusu calisiyor.
 echo echo Admin panel: http://localhost:3000/admin
@@ -161,6 +163,17 @@ if %errorlevel% equ 0 ( echo [OK] Bilgisayar acilinca otomatik baslar
 :: Guvenlik duvari
 netsh advfirewall firewall add rule name="Siramatik Server" dir=in action=allow protocol=TCP localport=3000 >nul 2>&1
 echo [OK] Guvenlik duvari izni eklendi
+
+:: .env dosyasi
+if not exist "%INSTALL_DIR%\.env" (
+    set JWT_SECRET_TMP=%RANDOM%%RANDOM%%RANDOM%
+    (
+        echo PORT=3000
+        echo NODE_ENV=production
+        echo JWT_SECRET=%JWT_SECRET_TMP%
+    ) > "%INSTALL_DIR%\.env"
+    echo [OK] .env dosyasi olusturuldu
+) else ( echo [OK] .env mevcut )
 
 :: Masaustu kisa yolu
 powershell -Command "$WS=New-Object -ComObject WScript.Shell;$WS=New-Object -ComObject WScript.Shell;$lnk=$WS.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Siramatik Admin.lnk');$lnk.TargetPath='%INSTALL_DIR%\baslat.bat';$lnk.Description='Siramatik Admin Paneli';$lnk.Save()" >nul 2>&1

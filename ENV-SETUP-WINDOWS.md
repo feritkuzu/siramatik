@@ -13,25 +13,17 @@ NODE_ENV=development
 # Port
 PORT=3000
 
-# Manus OAuth
-VITE_APP_ID=6WnCokWgb4rfLgjGA27M8D
-OAUTH_SERVER_URL=https://api.manus.im
-VITE_OAUTH_PORTAL_URL=https://manus.im
+# OAuth
+VITE_APP_ID=
+OAUTH_SERVER_URL=
+VITE_OAUTH_PORTAL_URL=
 
 # JWT Secret
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 
-# Manus APIs
-BUILT_IN_FORGE_API_URL=https://api.manus.im
-BUILT_IN_FORGE_API_KEY=your-forge-api-key
-
 # Owner Info
 OWNER_OPEN_ID=your-owner-open-id
 OWNER_NAME=Admin
-
-# Frontend Config
-VITE_FRONTEND_FORGE_API_URL=https://api.manus.im
-VITE_FRONTEND_FORGE_API_KEY=your-frontend-forge-api-key
 VITE_APP_TITLE=Sıramatik Sistemi
 ```
 
@@ -53,15 +45,15 @@ pnpm run dev
 ## Detaylı Açıklamalar
 
 ### VITE_APP_ID
-Manus uygulamanızın ID'si. Değiştirmeyin.
+OAuth uygulama ID'si.
 ```
-VITE_APP_ID=6WnCokWgb4rfLgjGA27M8D
+VITE_APP_ID=
 ```
 
 ### OAUTH_SERVER_URL
-Manus OAuth sunucusu. Değiştirmeyin.
+OAuth sunucu URL'si.
 ```
-OAUTH_SERVER_URL=https://api.manus.im
+OAUTH_SERVER_URL=
 ```
 
 ### JWT_SECRET
@@ -100,16 +92,12 @@ cd C:\wamp64\www\siramatik
 @"
 NODE_ENV=development
 PORT=3000
-VITE_APP_ID=6WnCokWgb4rfLgjGA27M8D
-OAUTH_SERVER_URL=https://api.manus.im
-VITE_OAUTH_PORTAL_URL=https://manus.im
+VITE_APP_ID=
+OAUTH_SERVER_URL=
+VITE_OAUTH_PORTAL_URL=
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-BUILT_IN_FORGE_API_URL=https://api.manus.im
-BUILT_IN_FORGE_API_KEY=your-forge-api-key
 OWNER_OPEN_ID=your-owner-open-id
 OWNER_NAME=Admin
-VITE_FRONTEND_FORGE_API_URL=https://api.manus.im
-VITE_FRONTEND_FORGE_API_KEY=your-frontend-forge-api-key
 VITE_APP_TITLE=Sıramatik Sistemi
 "@ | Out-File -Encoding UTF8 .env
 ```
@@ -160,12 +148,12 @@ pnpm run dev
 - [ ] `.env` dosyası oluşturuldu
 - [ ] `C:\wamp64\www\siramatik\.env` konumunda
 - [ ] UTF-8 kodlaması
-- [ ] `OAUTH_SERVER_URL=https://api.manus.im` satırı var
+- [ ] `OAUTH_SERVER_URL` satırı var
 - [ ] `NODE_ENV=development` satırı var
 - [ ] `PORT=3000` satırı var
 - [ ] Dosya kaydedildi
 - [ ] `pnpm run dev` komutu çalıştırıldı
-- [ ] `[OAuth] Initialized with baseURL: https://api.manus.im` mesajı görüldü
+- [ ] `[OAuth] Initialized with baseURL: ...` mesajı görüldü
 
 ---
 
