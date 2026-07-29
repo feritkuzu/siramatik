@@ -69,6 +69,17 @@ function New-ServerPackage {
     Pop-Location
     $env:Path = $oldPath
 
+    # 3b) Download VC++ Redistributable (needed by Node.js on fresh Windows)
+    $vcRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    $vcRedistPath = "$TEMP_DIR\vc_redist.x64.exe"
+    if (-not (Test-Path $vcRedistPath)) {
+        Write-Host "  VC++ Redistributable indiriliyor..." -ForegroundColor Yellow
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $vcRedistUrl -OutFile $vcRedistPath -UseBasicParsing
+    }
+    Copy-Item -Path $vcRedistPath -Destination "$pkgDir\vc_redist.x64.exe" -Force
+    Write-Host "  [OK] VC++ Redistributable eklendi" -ForegroundColor Green
+
     # 4) Copy remaining files
     New-Item -ItemType Directory -Path "$pkgDir\server" -Force | Out-Null
     Copy-Item -Path "$PROJECT_DIR\dist\index.js" -Destination "$pkgDir\server\index.js" -Force

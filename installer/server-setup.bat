@@ -32,6 +32,17 @@ if %errorlevel% equ 0 (
     pause & exit /b 1
 )
 
+:: ===== VC++ REDIST KONTROL =====
+if not exist "%SystemRoot%\System32\vcruntime140.dll" (
+    echo.
+    echo [!] VC++ Redistributable gerekli, kuruluyor...
+    if exist "%~dp0vc_redist.x64.exe" (
+        start /wait "" "%~dp0vc_redist.x64.exe" /install /quiet /norestart
+        if !errorlevel! equ 0 ( echo [OK] VC++ Redistributable kuruldu
+        ) else ( echo [!] VC++ kurulumu uyariyla bitti )
+    ) else ( echo [!] vc_redist.x64.exe pakette bulunamadi! )
+)
+
 :: ===== KLASORLERI OLUSTUR =====
 echo.
 echo --------------------------------------------

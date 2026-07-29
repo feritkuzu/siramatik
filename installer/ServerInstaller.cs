@@ -109,6 +109,14 @@ class ServerInstallerForm : Form {
     } catch { }
     Log("[OK] 3000 portu müsait");
 
+    // VC++ Redistributable check
+    bool vcOk = File.Exists(Path.Combine(Environment.SystemDirectory, "vcruntime140.dll"));
+    if (vcOk) {
+      Log("[OK] VC++ Redistributable mevcut");
+    } else {
+      Log("[!] VC++ Redistributable gerekli - paket içinde hazır");
+    }
+
     Log("[OK] Node.js paket içinde hazır");
     installBtn.Enabled = true;
   }
@@ -136,6 +144,26 @@ class ServerInstallerForm : Form {
       Directory.CreateDirectory(extractDir);
       ExtractZip();
       Log("[OK] Dosyalar çıkarıldı");
+
+      // Install VC++ Redistributable if missing (Node.js requires it)
+      if (!File.Exists(Path.Combine(Environment.SystemDirectory, "vcruntime140.dll"))) {
+        string vcRedist = Path.Combine(extractDir, "vc_redist.x64.exe");
+        if (File.Exists(vcRedist)) {
+          UpdateStatus("VC++ Redistributable kuruluyor...", 25);
+          Log("[...] VC++ Redistributable kuruluyor (birkaç saniye)...");
+          using (var p = Process.Start(new ProcessStartInfo(vcRedist, "/install /quiet /norestart") {
+            CreateNoWindow = true, UseShellExecute = false
+          })) {
+            if (p != null) {
+              p.WaitForExit(60000);
+              if (p.ExitCode == 0) Log("[OK] VC++ Redistributable kuruldu");
+              else Log("[!] VC++ kurulumu uyarıyla bitti (kod: " + p.ExitCode + ")");
+            }
+          }
+        } else {
+          Log("[!] VC++ Redistributable pakette bulunamadı, node.exe çalışmayabilir!");
+        }
+      }
 
       // Copy ALL files including bundled Node.js and node_modules
       UpdateStatus("Dosyalar kopyalanıyor...", 40);
