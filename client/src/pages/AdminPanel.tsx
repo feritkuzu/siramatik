@@ -1013,7 +1013,11 @@ export default function AdminPanel() {
                       console.log('[AdminPanel] Test printer clicked:', selectedPrinter);
                       testWindowsPrinterMutation.mutate({ printerName: selectedPrinter }, {
                       onSuccess: (result) => {
-                        toast.success(`✓ ${result.message}`);
+                        if (result.success) {
+                          toast.success(`✓ ${result.message}`);
+                        } else {
+                          toast.error(`✗ ${result.message}`);
+                        }
                       },
                       onError: () => {
                         toast.error(`✗ Yazıcı testi başarısız`);
@@ -1334,7 +1338,13 @@ export default function AdminPanel() {
                   testWindowsPrinterMutation.mutate(
                     { printerName: selectedPrinter, labelSettings },
                     {
-                      onSuccess: (result) => toast.success(result.message || '✓ Test yazdırması gönderildi'),
+                      onSuccess: (result) => {
+                        if (result.success) {
+                          toast.success('✓ ' + (result.message || 'Test yazdırması gönderildi'));
+                        } else {
+                          toast.error('✗ ' + (result.message || 'Test başarısız'));
+                        }
+                      },
                       onError: (err) => toast.error('✗ Test başarısız: ' + (err instanceof Error ? err.message : String(err))),
                     }
                   );

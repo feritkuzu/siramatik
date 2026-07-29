@@ -189,8 +189,8 @@ export async function printESCPOSViaWindowsAPI(
   );
   if (r1.ok) { cleanup(tempFile); return { success: true, message: `Yazdırıldı: ${printerName}` }; }
 
-  // 2. PowerShell .NET RAW via PrintServer
-  const script = `Add-Type -AssemblyName System.Printing; $s=New-Object System.Printing.PrintServer; $q=$s.GetPrintQueue('${pn}'); $j=$q.AddJob('s'); $j.JobStream.Write([System.IO.File]::ReadAllBytes('${tempFile}'),0,([System.IO.File]::ReadAllBytes('${tempFile}')).Length); $j.JobStream.Close()`;
+  // 2. PowerShell .NET RAW via PrintServer (with proper error detection)
+  const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Printing; $s=New-Object System.Printing.PrintServer; $q=$s.GetPrintQueue('${pn}'); if(!$q){throw 'Yazici bulunamadi: ${pn}'}; $j=$q.AddJob('s'); $j.JobStream.Write([System.IO.File]::ReadAllBytes('${tempFile}'),0,([System.IO.File]::ReadAllBytes('${tempFile}')).Length); $j.JobStream.Close()`;
   const r2 = runCmd(`powershell -NoProfile -Command "${script}"`, '.NET RAW');
   if (r2.ok) { cleanup(tempFile); return { success: true, message: `Yazdırıldı: ${printerName}` }; }
 
