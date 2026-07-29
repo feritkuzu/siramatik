@@ -256,8 +256,8 @@ class ServerInstallerForm : Form {
 
   void CreateStartupFiles(string installDir) {
     string nodeExe = Path.Combine(installDir, "node", "node.exe");
-    string nodePath = File.Exists(nodeExe) ? nodeExe : "node";
-    string bat = "@echo off\r\ncd /d \"" + installDir + "\"\r\nset NODE_ENV=production\r\nset PATH=%CD%\\node;%PATH%\r\nstart /B " + nodePath + " server\\index.js\r\necho Siramatik sunucusu calisiyor.\r\necho Admin panel: http://localhost:3000/admin\r\npause\r\n";
+    string nodePath = File.Exists(nodeExe) ? "\"" + nodeExe + "\"" : "node";
+    string bat = "@echo off\r\ncd /d \"" + installDir + "\"\r\nset NODE_ENV=production\r\nset PATH=%CD%\\node;%PATH%\r\necho Siramatik sunucusu baslatiliyor...\r\necho Admin panel: http://localhost:3000/admin\r\necho.\r\necho NOT: Sunucuyu durdurmak icin Ctrl+C basin.\r\necho ----------------------------------------\r\n" + nodePath + " server\\index.js\r\necho ----------------------------------------\r\necho Sunucu durduruldu.\r\npause\r\n";
     File.WriteAllText(Path.Combine(installDir, "baslat.bat"), bat);
 
     try {

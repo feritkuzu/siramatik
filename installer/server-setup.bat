@@ -101,9 +101,14 @@ echo @echo off
 echo cd /d "%INSTALL_DIR%"
 echo set NODE_ENV=production
 echo set PATH=%%CD%%\node;%%PATH%%
-echo start /B %NODE_PATH% server\index.js
-echo echo Siramatik sunucusu calisiyor.
+echo echo Siramatik sunucusu baslatiliyor...
 echo echo Admin panel: http://localhost:3000/admin
+echo echo.
+echo echo NOT: Sunucuyu durdurmak icin Ctrl+C basin
+echo echo ----------------------------------------
+echo %NODE_PATH% server\index.js
+echo echo ----------------------------------------
+echo echo Sunucu durduruldu.
 echo pause
 ) > "%INSTALL_DIR%\baslat.bat"
 echo [OK] baslat.bat olusturuldu
