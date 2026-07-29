@@ -57,8 +57,8 @@ mkdir "%INSTALL_DIR%\node" 2>nul
 xcopy /E /I /Y "%~dp0server" "%INSTALL_DIR%\server\" >nul 2>&1 && echo [OK] Sunucu dosyalari
 xcopy /E /I /Y "%~dp0client" "%INSTALL_DIR%\client\" >nul 2>&1 && echo [OK] Web arayuz
 xcopy /E /I /Y "%~dp0shared" "%INSTALL_DIR%\shared\" >nul 2>&1 && echo [OK] Paylasimli dosyalar
-if exist "%~dp0release" (
-    xcopy /E /I /Y "%~dp0release" "%INSTALL_DIR%\release\" >nul 2>&1 && echo [OK] Medya dosyalari
+if exist "%~dp0release\Media\Notification" (
+    xcopy /E /I /Y "%~dp0release\Media\Notification" "%INSTALL_DIR%\release\Media\Notification\" >nul 2>&1 && echo [OK] Medya dosyalari
 )
 if exist "%~dp0node" (
     xcopy /E /I /Y "%~dp0node" "%INSTALL_DIR%\node\" >nul 2>&1 && echo [OK] Node.js

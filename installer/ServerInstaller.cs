@@ -167,11 +167,14 @@ class ServerInstallerForm : Form {
 
       // Copy ALL files including bundled Node.js and node_modules
       UpdateStatus("Dosyalar kopyalanıyor...", 40);
-      string[] copyDirs = { "server", "client", "shared", "release", "node" };
+      string[] copyDirs = { "server", "client", "shared", "node" };
       foreach (string dir in copyDirs) {
         string src = Path.Combine(extractDir, dir);
         if (Directory.Exists(src)) CopyDir(src, Path.Combine(installDir, dir));
       }
+      // Copy media (notification MP3s)
+      string mediaSrc = Path.Combine(extractDir, "release", "Media", "Notification");
+      if (Directory.Exists(mediaSrc)) CopyDir(mediaSrc, Path.Combine(installDir, "release", "Media", "Notification"));
       // Copy node_modules (if present)
       string nmSrc = Path.Combine(extractDir, "node_modules");
       if (Directory.Exists(nmSrc)) CopyDir(nmSrc, Path.Combine(installDir, "node_modules"));

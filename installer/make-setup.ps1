@@ -87,8 +87,11 @@ function New-ServerPackage {
         Copy-Item -Path "$PROJECT_DIR\dist\public" -Destination "$pkgDir\client" -Recurse -Force
     }
     Copy-Item -Path "$PROJECT_DIR\shared" -Destination "$pkgDir\shared" -Recurse -Force
-    if (Test-Path "$PROJECT_DIR\release") {
-        Copy-Item -Path "$PROJECT_DIR\release" -Destination "$pkgDir\release" -Recurse -Force
+    # Only copy notification MP3s (not Electron build artifacts which are huge)
+    $notifSrc = "$PROJECT_DIR\release\Media\Notification"
+    if (Test-Path $notifSrc) {
+        New-Item -ItemType Directory -Path "$pkgDir\release\Media\Notification" -Force | Out-Null
+        Copy-Item -Path "$notifSrc\*" -Destination "$pkgDir\release\Media\Notification" -Force
     }
     if (Test-Path "$PROJECT_DIR\siramatik.db") {
         Copy-Item -Path "$PROJECT_DIR\siramatik.db" -Destination "$pkgDir\" -Force
