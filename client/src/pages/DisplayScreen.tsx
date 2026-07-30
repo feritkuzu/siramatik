@@ -216,19 +216,28 @@ export default function DisplayScreen() {
   // Socket.io connection
   const { on } = useSocket("display");
 
-  // Apply theme
+  // Apply theme with comprehensive CSS variables
   useEffect(() => {
     if (config) {
       const c = config as any;
+      const bg = c.themeBg || "#0d1b2a";
+      const text = c.themeText || "#e0e1dd";
+      const header = c.themeHeader || "#1b98a0";
+      const subheader = c.themeSubheader || "#415a77";
+      const border = c.themeBorder || "#1b98a0";
+      const font = c.themeFont || "Segoe UI, sans-serif";
+      const fontSize = (c.themeFontSize ?? 16) + "px";
+
       const root = document.documentElement;
-      root.style.setProperty("--background", c.themeBg || "#0d1b2a");
-      root.style.setProperty("--foreground", c.themeText || "#e0e1dd");
-      root.style.setProperty("--card", c.themeBg || "#0d1b2a");
-      root.style.setProperty("--primary", c.themeHeader || "#1b98a0");
-      root.style.setProperty("--secondary", c.themeSubheader || "#415a77");
-      root.style.setProperty("--border", c.themeBorder || "#1b98a0");
-      document.body.style.fontFamily = c.themeFont || "Segoe UI, sans-serif";
-      document.body.style.fontSize = (c.themeFontSize ?? 16) + "px";
+      root.style.setProperty("--background", bg);
+      root.style.setProperty("--foreground", text);
+      root.style.setProperty("--card", bg);
+      root.style.setProperty("--primary", header);
+      root.style.setProperty("--secondary", subheader);
+      root.style.setProperty("--border", border);
+      root.style.setProperty("--display-name", `"${c.systemName || "SIRAMATİK"}"`);
+      document.body.style.fontFamily = font;
+      document.body.style.fontSize = fontSize;
     }
   }, [config]);
 
@@ -482,7 +491,7 @@ export default function DisplayScreen() {
 
         {/* Right - Active Bank Cards */}
         <div className="w-full md:w-80 flex flex-col min-h-0 shrink-0">
-          <div className="border-b-2 border-cyan-500 pb-1 mb-2 flex items-center gap-2">
+          <div className="border-b-2 border-secondary pb-1 mb-2 flex items-center gap-2">
             <h2 className="text-lg font-black neon-blue">AKTİF BANKOLAR</h2>
             <span className="text-xs text-foreground/60">{banks.filter((b: any) => connectedBankIds?.includes(b.id)).length} aktif</span>
           </div>
@@ -491,15 +500,15 @@ export default function DisplayScreen() {
               const activeTicket = calledTickets.find((t) => t.bankId === bank.id && !t.completed);
               return (
               <div key={bank.id}
-                className={`border-l-4 p-3 flex items-center justify-between ${bank.isOccupied ? "border-cyan-400 bg-card/80" : "border-green-500/60 bg-card/40"}`}>
+                className={`border-l-4 p-3 flex items-center justify-between ${bank.isOccupied ? "border-primary bg-card/80" : "border-primary/50 bg-card/40"}`}>
                 <div className="flex items-center gap-2">
-                  <span className={`inline-block w-2 h-2 rounded-full ${bank.isOccupied ? "bg-cyan-400 animate-pulse" : "bg-green-500"}`}></span>
-                  <span className="text-lg font-black neon-blue">BANKO {bank.bankNumber}</span>
+                  <span className={`inline-block w-2 h-2 rounded-full ${bank.isOccupied ? "bg-primary animate-pulse" : "bg-primary/60"}`}></span>
+                  <span className="text-lg font-black text-primary">BANKO {bank.bankNumber}</span>
                 </div>
                 {bank.isOccupied && activeTicket ? (
-                  <span className="text-5xl font-black text-cyan-300">{activeTicket.ticketNumber}</span>
+                  <span className="text-5xl font-black text-primary">{activeTicket.ticketNumber}</span>
                 ) : (
-                  <span className="text-xs font-bold text-green-400">MÜSAİT</span>
+                  <span className="text-xs font-bold text-secondary">MÜSAİT</span>
                 )}
               </div>
             )})}
@@ -527,8 +536,8 @@ export default function DisplayScreen() {
           {/* Left: System Status */}
           <div className="bg-black border-r-4 border-border px-5 flex items-center font-bold whitespace-nowrap tracking-wider gap-3"
             style={{ fontFamily: "'LED Counter 7', 'Courier New', monospace", fontSize: "18px", textShadow: "0 0 8px currentColor" }}>
-            <span style={{ color: config && !(config as any)?.isSystemActive ? "#ef4444" : "#22c55e" }}>●</span>
-            <span style={{ color: config && !(config as any)?.isSystemActive ? "#ef4444" : "#22c55e" }}>
+            <span style={{ color: config && !(config as any)?.isSystemActive ? "var(--destructive)" : "var(--secondary)" }}>●</span>
+            <span style={{ color: config && !(config as any)?.isSystemActive ? "var(--destructive)" : "var(--secondary)" }}>
               {config && !(config as any)?.isSystemActive ? "SİSTEM KAPALI" : "SİSTEM AKTİF"}
             </span>
           </div>
@@ -541,8 +550,8 @@ export default function DisplayScreen() {
                   fontFamily: "'LED Counter 7', 'Courier New', monospace",
                   fontSize: `${(config as any)?.tickerFontSize || 22}px`,
                   fontWeight: 600,
-                  color: "#22c55e",
-                  textShadow: "0 0 8px rgba(34, 197, 94, 0.7)",
+                  color: "var(--secondary)",
+                  textShadow: "0 0 8px var(--secondary)",
                   letterSpacing: "4px",
                   animation: `tickerScroll ${(config as any)?.tickerSpeed || 8}s linear infinite`,
                 }}
@@ -556,8 +565,8 @@ export default function DisplayScreen() {
                 style={{
                   fontFamily: "'LED Counter 7', 'Courier New', monospace",
                   fontSize: "18px",
-                  color: "#22c55e",
-                  textShadow: "0 0 8px rgba(34, 197, 94, 0.7)",
+                  color: "var(--secondary)",
+                  textShadow: "0 0 8px var(--secondary)",
                 }}>
                 SİSTEM ÇALIŞIYOR
               </span>
@@ -581,6 +590,21 @@ export default function DisplayScreen() {
       )}
 
       <style>{`
+        :root {
+          --display-bg: var(--background);
+          --display-text: var(--foreground);
+          --display-accent: var(--primary);
+          --display-accent-secondary: var(--secondary);
+          --display-border: var(--border);
+          --display-card-bg: var(--card);
+          --display-header-text: var(--foreground);
+          --display-time-bg: color-mix(in srgb, var(--primary) 15%, transparent);
+          --display-board-header-bg: var(--primary);
+          --display-board-header-text: var(--foreground);
+          --display-row-bg: color-mix(in srgb, var(--card) 97%, var(--primary) 3%);
+          --display-row-border: var(--border);
+          --display-ticker-green: var(--secondary);
+        }
         @keyframes neon-pulse {
           0%, 100% {
             opacity: 1;

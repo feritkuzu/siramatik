@@ -163,7 +163,7 @@
   }
 
   .neon-purple {
-    color: #b537f2;
+    color: var(--primary, #b537f2);
   }
 
   /* HUD Border Effect */

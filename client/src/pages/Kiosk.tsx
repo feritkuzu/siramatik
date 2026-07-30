@@ -438,8 +438,8 @@ export default function Kiosk() {
             className="w-full h-full"
             style={{
               backgroundImage: `
-                linear-gradient(0deg, transparent 24%, rgba(255, 0, 110, 0.1) 25%, rgba(255, 0, 110, 0.1) 26%, transparent 27%, transparent 74%, rgba(255, 0, 110, 0.1) 75%, rgba(255, 0, 110, 0.1) 76%, transparent 77%, transparent),
-                linear-gradient(90deg, transparent 24%, rgba(0, 217, 255, 0.1) 25%, rgba(0, 217, 255, 0.1) 26%, transparent 27%, transparent 74%, rgba(0, 217, 255, 0.1) 75%, rgba(0, 217, 255, 0.1) 76%, transparent 77%, transparent)
+                linear-gradient(0deg, transparent 24%, color-mix(in srgb, var(--primary) 10%, transparent) 25%, color-mix(in srgb, var(--primary) 10%, transparent) 26%, transparent 27%, transparent 74%, color-mix(in srgb, var(--primary) 10%, transparent) 75%, color-mix(in srgb, var(--primary) 10%, transparent) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, color-mix(in srgb, var(--secondary) 10%, transparent) 25%, color-mix(in srgb, var(--secondary) 10%, transparent) 26%, transparent 27%, transparent 74%, color-mix(in srgb, var(--secondary) 10%, transparent) 75%, color-mix(in srgb, var(--secondary) 10%, transparent) 76%, transparent 77%, transparent)
               `,
               backgroundSize: "50px 50px",
             }}
@@ -615,7 +615,7 @@ export default function Kiosk() {
 
               {/* Footer Info */}
               <div className="text-center text-xs sm:text-sm text-foreground/60 mt-6 sm:mt-8 md:mt-12">
-                <p>Sistem Durumu: <span className="text-green-400">● AKTIF</span></p>
+                <p>Sistem Durumu: <span className="text-secondary">● AKTIF</span></p>
               </div>
             </>
           ) : (
@@ -686,6 +686,13 @@ export default function Kiosk() {
       </div>
 
       <style>{`
+        :root {
+          --kiosk-bg: var(--background);
+          --kiosk-text: var(--foreground);
+          --kiosk-accent: var(--primary);
+          --kiosk-accent-secondary: var(--secondary);
+          --kiosk-border: var(--border);
+        }
         @keyframes neon-pulse {
           0%, 100% {
             opacity: 1;
