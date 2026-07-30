@@ -5,15 +5,7 @@ import { useSocket } from "@/hooks/useSocket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const themePresets: Record<string, { label: string; bg: string; text: string; header: string; subheader: string; border: string; font: string }> = {
-  cyber: { label: "Cyberpunk", bg: "#0a0a0a", text: "#00ff41", header: "#ff00ff", subheader: "#00ffff", border: "#ff00ff", font: "Courier New, monospace" },
-  ocean: { label: "Okyanus", bg: "#0d1b2a", text: "#e0e1dd", header: "#1b98a0", subheader: "#415a77", border: "#1b98a0", font: "Segoe UI, sans-serif" },
-  classic: { label: "Klasik", bg: "#1a1a2e", text: "#ffffff", header: "#e94560", subheader: "#16213e", border: "#e94560", font: "Arial, sans-serif" },
-  forest: { label: "Orman", bg: "#0a1f0a", text: "#d4edda", header: "#28a745", subheader: "#155724", border: "#28a745", font: "Georgia, serif" },
-  sunset: { label: "Günbatımı", bg: "#1a0a0a", text: "#ffe0d0", header: "#ff6b35", subheader: "#c73e1d", border: "#ff6b35", font: "Tahoma, sans-serif" },
-  midnight: { label: "Gece Mavisi", bg: "#000814", text: "#c0c8e0", header: "#003566", subheader: "#001233", border: "#ffc300", font: "Segoe UI, sans-serif" },
-  lavender: { label: "Lavanta", bg: "#1a0a2e", text: "#e5d9f2", header: "#9b5de5", subheader: "#7b2d8e", border: "#9b5de5", font: "Verdana, sans-serif" },
-};
+
 
 export default function AdminPanel() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(() => {
@@ -202,6 +194,20 @@ export default function AdminPanel() {
       setSoundSettings(fetchedSoundSettings);
     }
   }, [fetchedSoundSettings]);
+
+  // Apply theme to admin panel itself
+  useEffect(() => {
+    if (config) {
+      const c = config as any;
+      const root = document.documentElement;
+      root.style.setProperty("--background", c.themeBg || "#0d1b2a");
+      root.style.setProperty("--foreground", c.themeText || "#e0e1dd");
+      root.style.setProperty("--card", c.themeBg || "#0d1b2a");
+      root.style.setProperty("--primary", c.themeHeader || "#1b98a0");
+      root.style.setProperty("--secondary", c.themeSubheader || "#415a77");
+      root.style.setProperty("--border", c.themeBorder || "#1b98a0");
+    }
+  }, [config]);
 
   useEffect(() => {
     if (labelSettingsData && labelSettingsData.id) {

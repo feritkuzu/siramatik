@@ -422,100 +422,204 @@ export default function DisplayScreen() {
   };
 
   return (
-    <div className="w-full h-screen bg-background flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b-4 border-border p-4 md:p-6 bg-card flex items-center">
-        <div className="flex-1 text-center">
-          {systemName && (
-            <h1 className="text-3xl md:text-5xl font-black neon-pink mb-1">
-              {systemName}
-            </h1>
-          )}
-          <p className="text-lg md:text-xl neon-blue">
-            SIRAMATİK SİSTEMİ
-          </p>
+    <div className="w-full h-screen flex flex-col overflow-hidden" style={{ backgroundColor: "var(--display-bg)", color: "var(--display-text)", fontFamily: "inherit" }}>
+
+      {/* ===== HEADER ===== */}
+      <header style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "16px 32px", height: "8vh", borderBottom: "3px solid var(--display-border)",
+        backgroundColor: "color-mix(in srgb, var(--display-bg) 97%, var(--display-accent) 3%)"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{
+            width: "48px", height: "48px", borderRadius: "50%",
+            backgroundColor: "var(--display-accent)", display: "flex",
+            alignItems: "center", justifyContent: "center", fontSize: "28px"
+          }}>🏦</div>
+          <div>
+            <div style={{ fontSize: "24px", fontWeight: 800, letterSpacing: "1px" }}>
+              {systemName || "SİRAMATİK"}
+            </div>
+            <div style={{ fontSize: "11px", opacity: 0.7, letterSpacing: "2px" }}>
+              SIRA YÖNETİM SİSTEMİ
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          {weather && (
-            <div className="w-32 border-2 border-border p-2 text-center flex flex-col items-center justify-center">
-              <span className="text-3xl md:text-4xl" style={{ animation: "weatherFloat 3s ease-in-out infinite" }}>{getWeatherEmoji(weather.desc, weather.code)}</span>
-              <p className="text-xs text-foreground/70 mt-1 font-semibold truncate max-w-full">{weatherCity}</p>
-              <p className="text-lg md:text-xl font-black neon-pink">
-                {weather.temp}°C
-              </p>
-              <p className="text-[10px] text-foreground/60 truncate max-w-full">{translateWeatherDesc(weather.desc)}</p>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{
+            display: "flex", gap: "8px", padding: "4px 6px", borderRadius: "20px",
+            background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)"
+          }}>
+            <span style={{
+              padding: "4px 10px", borderRadius: "14px", fontSize: "12px",
+              background: "var(--display-accent)", color: "#fff", fontWeight: 600
+            }}>
+              ● {config && !(config as any)?.isSystemActive ? "KAPALI" : "AKTİF"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: "12px" }}>
+            <div style={{
+              backgroundColor: "color-mix(in srgb, var(--display-accent) 15%, transparent)",
+              padding: "8px 16px", borderRadius: "8px", fontWeight: 700,
+              border: "1px solid rgba(255,255,255,0.1)", fontSize: "17px"
+            }}>
+              {clock.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" }).toUpperCase()}
+            </div>
+            <div style={{
+              backgroundColor: "color-mix(in srgb, var(--display-accent) 15%, transparent)",
+              padding: "8px 20px", borderRadius: "8px", fontWeight: 700,
+              border: "1px solid rgba(255,255,255,0.1)", fontSize: "26px", fontFamily: "'Courier New', monospace"
+            }}>
+              {clock.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ===== MAIN CONTENT ===== */}
+      <div style={{
+        display: "flex", flex: 1, padding: "0 32px 32px 32px", gap: "24px", height: "85vh"
+      }}>
+
+        {/* ===== LEFT: QUEUE BOARD (30%) ===== */}
+        <div style={{
+          width: "30%", display: "flex", flexDirection: "column",
+          borderRadius: "12px", overflow: "hidden",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.3)"
+        }}>
+          <div style={{
+            display: "flex", backgroundColor: "var(--display-accent)",
+            color: "#fff", fontSize: "20px", fontWeight: 800
+          }}>
+            <div style={{ flex: 1, padding: "18px 0", textAlign: "center", borderRight: "2px solid rgba(255,255,255,0.15)" }}>SIRA NO</div>
+            <div style={{ flex: 1, padding: "18px 0", textAlign: "center" }}>GİŞE</div>
+          </div>
+
+          {banks.filter((b: any) => b.isOccupied).length > 0 ? (
+            banks.filter((b: any) => b.isOccupied).map((bank: any) => {
+              const activeTicket = calledTickets.find((t) => t.bankId === bank.id && !t.completed);
+              if (!activeTicket) return null;
+              return (
+                <div key={bank.id} style={{
+                  display: "flex", flex: 1,
+                  backgroundColor: "var(--display-row-bg)",
+                  borderBottom: "3px solid var(--display-row-border)",
+                  transition: "all 0.3s"
+                }}>
+                  <div style={{
+                    flex: 1, display: "flex", justifyContent: "center", alignItems: "center",
+                    fontSize: "clamp(24px, 4vw, 52px)", fontWeight: 800,
+                    color: "var(--display-accent)", borderRight: "3px solid var(--display-row-border)"
+                  }}>
+                    {activeTicket.ticketNumber}
+                  </div>
+                  <div style={{
+                    flex: 1, display: "flex", justifyContent: "center", alignItems: "center",
+                    fontSize: "clamp(24px, 4vw, 52px)", fontWeight: 800,
+                    color: "var(--display-accent-secondary)"
+                  }}>
+                    {bank.bankNumber}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div style={{
+              flex: 1, display: "flex", justifyContent: "center", alignItems: "center",
+              backgroundColor: "var(--display-row-bg)",
+              fontSize: "18px", opacity: 0.5, letterSpacing: "2px"
+            }}>
+              BEKLENEN MÜŞTERİ YOK
             </div>
           )}
-          <div className="w-48 border-2 border-border p-2 text-center">
-            <p className="text-sm md:text-base font-black neon-pink">
-              {clock.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" }).toUpperCase()}
-            </p>
-            <p className="text-xs md:text-sm neon-blue mt-1">
-              {days[clock.getDay()]}
-            </p>
-            <p className="text-xl md:text-2xl font-black text-foreground mt-1">
-              {clock.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-            </p>
-          </div>
-        </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-        {/* Left - Waiting Queue */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0">
-          <div className="border-b-2 border-secondary pb-1 mb-2 flex items-center gap-2">
-            <h2 className="text-lg font-black neon-purple">BEKLEYENLER</h2>
-            <span className="text-xs text-foreground/60">{waitingQueue.length} kişi</span>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-0.5">
-            {waitingQueue.map((entry, index) => (
-              <div key={entry.id} className="flex items-center gap-3 py-1.5 border-b border-border/10 text-sm">
-                <span className="font-black text-foreground/30 w-6 text-right shrink-0">{index + 1}.</span>
-                <span className="text-xl font-black neon-pink flex-1">#{entry.ticketNumber}</span>
-                <span className="text-xs text-foreground/50 font-mono shrink-0">
-                  {new Date(entry.createdAt ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-                {entry.isPriority && entry.priorityType && (
-                  <span className="text-[10px] text-yellow-400 shrink-0 border border-yellow-600/40 px-1 py-0.5 rounded">
-                    {entry.priorityType === "elderly" ? "YAŞLI" : entry.priorityType === "disabled" ? "ENGELLİ" : "HAMİLE"}
-                  </span>
-                )}
+          {/* Fill remaining space with empty rows */}
+          {(() => {
+            const occupiedCount = banks.filter((b: any) => b.isOccupied).length;
+            const emptySlots = Math.max(0, 4 - occupiedCount);
+            return Array.from({ length: emptySlots }).map((_, i) => (
+              <div key={`empty-${i}`} style={{
+                display: "flex", flex: 1,
+                backgroundColor: "var(--display-row-bg)",
+                borderBottom: "3px solid var(--display-row-border)",
+                opacity: 0.3
+              }}>
+                <div style={{
+                  flex: 1, borderRight: "3px solid var(--display-row-border)"
+                }}></div>
+                <div style={{ flex: 1 }}></div>
               </div>
-            ))}
-            {waitingQueue.length === 0 && (
-              <div className="flex items-center justify-center h-32 text-sm text-foreground/40">Kuyruk boş</div>
-            )}
-          </div>
+            ));
+          })()}
         </div>
 
-        {/* Right - Active Bank Cards */}
-        <div className="w-full md:w-80 flex flex-col min-h-0 shrink-0">
-          <div className="border-b-2 border-secondary pb-1 mb-2 flex items-center gap-2">
-            <h2 className="text-lg font-black neon-blue">AKTİF BANKOLAR</h2>
-            <span className="text-xs text-foreground/60">{banks.filter((b: any) => connectedBankIds?.includes(b.id)).length} aktif</span>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2">
-            {banks.filter((b: any) => connectedBankIds?.includes(b.id)).map((bank: any) => {
-              const activeTicket = calledTickets.find((t) => t.bankId === bank.id && !t.completed);
-              return (
-              <div key={bank.id}
-                className={`border-l-4 p-3 flex items-center justify-between ${bank.isOccupied ? "border-primary bg-card/80" : "border-primary/50 bg-card/40"}`}>
-                <div className="flex items-center gap-2">
-                  <span className={`inline-block w-2 h-2 rounded-full ${bank.isOccupied ? "bg-primary animate-pulse" : "bg-primary/60"}`}></span>
-                  <span className="text-lg font-black text-primary">BANKO {bank.bankNumber}</span>
+        {/* ===== RIGHT: CONTENT AREA (70%) ===== */}
+        <div style={{
+          width: "70%", borderRadius: "12px", overflow: "hidden", position: "relative",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+          border: "4px solid color-mix(in srgb, var(--display-accent) 30%, transparent)",
+          display: "flex", flexDirection: "column",
+          backgroundColor: "color-mix(in srgb, var(--display-bg) 95%, var(--display-accent) 5%)"
+        }}>
+          {/* Waiting Queue Display */}
+          <div style={{ flex: 1, overflow: "hidden", padding: "24px 32px", display: "flex", flexDirection: "column" }}>
+            <h2 style={{
+              fontSize: "22px", fontWeight: 800, margin: 0, marginBottom: "16px",
+              color: "var(--display-accent-secondary)", letterSpacing: "2px",
+              borderBottom: "2px solid var(--display-row-border)", paddingBottom: "8px"
+            }}>
+              BEKLEYEN SIRALAR ({waitingQueue.length})
+            </h2>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: "8px" }}>
+              {waitingQueue.slice(0, 50).map((entry) => (
+                <div key={entry.id} style={{
+                  padding: "6px 14px", border: "1px solid var(--display-row-border)",
+                  borderRadius: "6px", fontSize: "16px", fontWeight: 700,
+                  color: entry.isPriority ? "var(--display-accent)" : "var(--display-text)",
+                  background: entry.isPriority ? "color-mix(in srgb, var(--display-accent) 10%, transparent)" : "transparent"
+                }}>
+                  #{entry.ticketNumber}
+                  {entry.isPriority && entry.priorityType && (
+                    <span style={{ fontSize: "10px", marginLeft: "4px", opacity: 0.7 }}>
+                      ({entry.priorityType === "elderly" ? "YAŞLI" : entry.priorityType === "disabled" ? "ENGELLİ" : "HAMİLE"})
+                    </span>
+                  )}
                 </div>
-                {bank.isOccupied && activeTicket ? (
-                  <span className="text-5xl font-black text-primary">{activeTicket.ticketNumber}</span>
-                ) : (
-                  <span className="text-xs font-bold text-secondary">MÜSAİT</span>
-                )}
-              </div>
-            )})}
-            {(!banks || banks.filter((b: any) => connectedBankIds?.includes(b.id)).length === 0) && (
-              <div className="flex items-center justify-center h-32 text-sm text-foreground/40">Aktif banko yok</div>
-            )}
+              ))}
+              {waitingQueue.length === 0 && (
+                <div style={{ width: "100%", textAlign: "center", padding: "40px", opacity: 0.4, fontSize: "18px" }}>
+                  Kuyruk boş
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Bottom Banner */}
+          {(config as any)?.announcements ? (
+            <div style={{
+              padding: "14px 24px", textAlign: "center",
+              background: "color-mix(in srgb, var(--display-accent) 12%, transparent)",
+              borderTop: "2px solid var(--display-row-border)",
+              fontSize: "16px", fontWeight: 600, color: "var(--display-accent-secondary)",
+              letterSpacing: "1px"
+            }}>
+              {(config as any).announcements.split('\n').filter(Boolean).map((a: string, i: number) => (
+                <span key={i} style={{ margin: "0 12px" }}>{a.trim()}</span>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              padding: "20px 24px", textAlign: "center",
+              background: "color-mix(in srgb, var(--display-accent) 8%, transparent)",
+              borderTop: "2px solid var(--display-row-border)"
+            }}>
+              <span style={{ fontSize: "20px", fontWeight: 800, fontStyle: "italic", color: "var(--display-accent)", letterSpacing: "4px" }}>
+                {systemName || "SIRAMATİK"} SİSTEMİ
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -530,59 +634,14 @@ export default function DisplayScreen() {
         </div>
       )}
 
-      {/* Footer - LED Display Ticker */}
-      <div className="border-t-4 border-border bg-black">
-        <div className="flex" style={{ height: "52px" }}>
-          {/* Left: System Status */}
-          <div className="bg-black border-r-4 border-border px-5 flex items-center font-bold whitespace-nowrap tracking-wider gap-3"
-            style={{ fontFamily: "'LED Counter 7', 'Courier New', monospace", fontSize: "18px", textShadow: "0 0 8px currentColor" }}>
-            <span style={{ color: config && !(config as any)?.isSystemActive ? "var(--destructive)" : "var(--secondary)" }}>●</span>
-            <span style={{ color: config && !(config as any)?.isSystemActive ? "var(--destructive)" : "var(--secondary)" }}>
-              {config && !(config as any)?.isSystemActive ? "SİSTEM KAPALI" : "SİSTEM AKTİF"}
-            </span>
-          </div>
-          {/* Right: Scrolling Announcements */}
-          <div className="flex-1 bg-black overflow-hidden flex items-center relative">
-            {(config as any)?.announcements ? (
-              <div
-                className="whitespace-nowrap absolute"
-                style={{
-                  fontFamily: "'LED Counter 7', 'Courier New', monospace",
-                  fontSize: `${(config as any)?.tickerFontSize || 22}px`,
-                  fontWeight: 600,
-                  color: "var(--secondary)",
-                  textShadow: "0 0 8px var(--secondary)",
-                  letterSpacing: "4px",
-                  animation: `tickerScroll ${(config as any)?.tickerSpeed || 8}s linear infinite`,
-                }}
-              >
-                {(config as any).announcements.split('\n').filter(Boolean).map((a: string, i: number) => (
-                  <span key={i} className="mx-12">{a.trim()}</span>
-                ))}
-              </div>
-            ) : (
-              <span className="px-5 font-bold tracking-widest"
-                style={{
-                  fontFamily: "'LED Counter 7', 'Courier New', monospace",
-                  fontSize: "18px",
-                  color: "var(--secondary)",
-                  textShadow: "0 0 8px var(--secondary)",
-                }}>
-                SİSTEM ÇALIŞIYOR
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Call Notification Overlay */}
       {callNotification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/85 border-8 border-primary px-16 py-12 text-center" style={{ animation: "callFadeIn 0.3s ease-out, callPulse 1s ease-in-out infinite" }}>
-            <div className="text-[15vw] md:text-[10vw] font-black leading-none mb-4" style={{ color: "var(--primary)", textShadow: "0 0 40px var(--primary), 0 0 80px var(--primary)" }}>
+          <div className="bg-black/85 border-8" style={{ borderColor: "var(--display-accent)", padding: "48px 64px", textAlign: "center", animation: "callFadeIn 0.3s ease-out, notificationPulse 1.5s ease-in-out infinite" }}>
+            <div style={{ fontSize: "clamp(60px, 10vw, 120px)", fontWeight: 900, lineHeight: 1, marginBottom: "16px", color: "var(--display-accent)", textShadow: "0 0 40px var(--display-accent), 0 0 80px var(--display-accent)" }}>
               {callNotification.ticketNumber}
             </div>
-            <div className="text-[4vw] md:text-[3vw] font-black tracking-widest" style={{ color: "var(--secondary)", textShadow: "0 0 20px var(--secondary)" }}>
+            <div style={{ fontSize: "clamp(24px, 3vw, 40px)", fontWeight: 900, letterSpacing: "4px", color: "var(--display-accent-secondary)", textShadow: "0 0 20px var(--display-accent-secondary)" }}>
               BANKO {bankMap[callNotification.bankId] ?? callNotification.bankId}
             </div>
           </div>
@@ -596,32 +655,8 @@ export default function DisplayScreen() {
           --display-accent: var(--primary);
           --display-accent-secondary: var(--secondary);
           --display-border: var(--border);
-          --display-card-bg: var(--card);
-          --display-header-text: var(--foreground);
-          --display-time-bg: color-mix(in srgb, var(--primary) 15%, transparent);
-          --display-board-header-bg: var(--primary);
-          --display-board-header-text: var(--foreground);
           --display-row-bg: color-mix(in srgb, var(--card) 97%, var(--primary) 3%);
           --display-row-border: var(--border);
-          --display-ticker-green: var(--secondary);
-        }
-        @keyframes neon-pulse {
-          0%, 100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.5;
-          }
-        }
-        @keyframes notificationPulse {
-          0%, 100% {
-            transform: scale(1);
-            opacity: 1;
-          }
-          50% {
-            transform: scale(1.05);
-            opacity: 0.9;
-          }
         }
         @keyframes fadeIn {
           from { opacity: 0; }
@@ -631,17 +666,9 @@ export default function DisplayScreen() {
           from { opacity: 0; transform: scale(0.8); }
           to { opacity: 1; transform: scale(1); }
         }
-        @keyframes callPulse {
+        @keyframes notificationPulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.85; }
-        }
-        @keyframes weatherFloat {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
-        }
-        @keyframes tickerScroll {
-          0% { transform: translateX(100vw); }
-          100% { transform: translateX(-100%); }
         }
       `}</style>
     </div>
