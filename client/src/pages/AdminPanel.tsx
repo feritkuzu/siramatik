@@ -209,6 +209,17 @@ export default function AdminPanel() {
     }
   }, [config]);
 
+  // Auto-apply theme on color change (before saving)
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--background", themeBg);
+    root.style.setProperty("--foreground", themeText);
+    root.style.setProperty("--card", themeBg);
+    root.style.setProperty("--primary", themeHeader);
+    root.style.setProperty("--secondary", themeSubheader);
+    root.style.setProperty("--border", themeBorder);
+  }, [themeBg, themeText, themeHeader, themeSubheader, themeBorder]);
+
   useEffect(() => {
     if (labelSettingsData && labelSettingsData.id) {
       setLabelSettings(labelSettingsData);
@@ -480,7 +491,36 @@ export default function AdminPanel() {
             {/* Theme Settings */}
             <h3 className="text-lg font-black neon-purple mt-6 mb-4" style={{ textShadow: "0 0 10px currentColor" }}>TEMA AYARLARI</h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Theme Preset Buttons */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "16px", padding: "5px", borderRadius: "20px", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)" }}>
+              {[
+                { id: "default", label: "Klasik Yeşil", bg: "#152421", text: "#ffffff", header: "#7b9c3a", subheader: "#174240", border: "#174240", font: "Segoe UI, sans-serif" },
+                { id: "dark", label: "Modern Gece", bg: "#111318", text: "#e1e7f5", header: "#00bcd4", subheader: "#00e5ff", border: "#1e293b", font: "Segoe UI, sans-serif" },
+                { id: "blue", label: "Kurumsal Mavi", bg: "#eef2f6", text: "#1e293b", header: "#1d4ed8", subheader: "#2563eb", border: "#cbd5e1", font: "Segoe UI, sans-serif" },
+                { id: "cyber", label: "Cyberpunk", bg: "#0a0a0a", text: "#00ff41", header: "#ff00ff", subheader: "#00ffff", border: "#ff00ff", font: "Courier New, monospace" },
+                { id: "ocean", label: "Okyanus", bg: "#0d1b2a", text: "#e0e1dd", header: "#1b98a0", subheader: "#415a77", border: "#1b98a0", font: "Segoe UI, sans-serif" },
+              ].map((preset) => {
+                const isActive = themeBg === preset.bg && themeText === preset.text;
+                return (
+                <button key={preset.id} onClick={() => {
+                  setThemeBg(preset.bg);
+                  setThemeText(preset.text);
+                  setThemeHeader(preset.header);
+                  setThemeSubheader(preset.subheader);
+                  setThemeBorder(preset.border);
+                  setThemeFont(preset.font);
+                }}
+                  style={{
+                    background: isActive ? "#ffffff" : "transparent",
+                    color: isActive ? "#000000" : "var(--foreground)",
+                    border: "none", padding: "6px 12px", borderRadius: "15px", cursor: "pointer",
+                    fontSize: "12px", fontWeight: 600, transition: "all 0.3s ease"
+                  }}
+                >
+                  {preset.label}
+                </button>
+                );
+              })}
               <div>
                 <label className="block text-sm font-bold mb-1 text-foreground/80">Arka Plan Rengi</label>
                 <div className="flex gap-2 items-center">
