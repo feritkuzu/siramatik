@@ -480,32 +480,6 @@ export default function AdminPanel() {
             {/* Theme Settings */}
             <h3 className="text-lg font-black neon-purple mt-6 mb-4" style={{ textShadow: "0 0 10px currentColor" }}>TEMA AYARLARI</h3>
 
-            {/* Theme Preset Selector */}
-            <div className="mb-6">
-              <label className="block text-sm font-bold mb-2 text-foreground/80">Hazır Tema Seç</label>
-              <select
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "custom") return;
-                  const preset = themePresets[val];
-                  if (preset) {
-                    setThemeBg(preset.bg);
-                    setThemeText(preset.text);
-                    setThemeHeader(preset.header);
-                    setThemeSubheader(preset.subheader);
-                    setThemeBorder(preset.border);
-                    setThemeFont(preset.font);
-                  }
-                }}
-                className="w-full h-12 border-4 border-secondary bg-card text-foreground font-black text-lg p-2"
-              >
-                <option value="custom">Kullanıcı Teması (Özel)</option>
-                {Object.entries(themePresets).map(([key, p]) => (
-                  <option key={key} value={key}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-bold mb-1 text-foreground/80">Arka Plan Rengi</label>
